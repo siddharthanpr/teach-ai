@@ -115,17 +115,41 @@
     return pool;
   }
 
-  // Picks a parent FROM an already-built pool. This has ITS OWN, separate
-  // epsilon from the pool-building one above.
+  // Boltzmann/softmax selection: P(i) ∝ exp(fitness_i / temperature), over
+  // WHATEVER set is passed in (the caller decides pool vs whole population).
+  // Subtracts the max fitness before exponentiating for numerical
+  // stability — this doesn't change the resulting distribution, it just
+  // keeps exp() from overflowing at low temperatures.
+  function selectSoftmax(individuals, temperature) {
+    const t = Math.max(0.01, temperature);
+    let maxF = -Infinity;
+    for (const ind of individuals) if (ind.fitness > maxF) maxF = ind.fitness;
+    const weights = individuals.map((ind) => Math.exp((ind.fitness - maxF) / t));
+    const total = weights.reduce((a, b) => a + b, 0);
+    let r = Math.random() * total;
+    for (let i = 0; i < individuals.length; i++) {
+      r -= weights[i];
+      if (r <= 0) return individuals[i];
+    }
+    return individuals[individuals.length - 1];
+  }
+
+  // Picks a parent FROM an already-built pool (or, for "softmax", from
+  // whatever set is passed — evolve() passes the whole population, since
+  // softmax replaces the top-N% pool rather than sampling within it).
   // "epsilon" — with probability selectionEpsilon, pick uniformly at
   // random from the pool; otherwise fitness-proportional within the pool.
   // "interleave" — deterministic round-robin through the pool, in the
   // order it was built.
-  function selectParent(pool, method, selectionEpsilon, cursor) {
+  // "softmax" — Boltzmann selection with a temperature parameter.
+  function selectParent(pool, method, selectionEpsilon, temperature, cursor) {
     if (method === "interleave") {
       const ind = pool[cursor.i % pool.length];
       cursor.i += 1;
       return ind;
+    }
+    if (method === "softmax") {
+      return selectSoftmax(pool, temperature);
     }
     if (Math.random() < selectionEpsilon) {
       return pool[Math.floor(Math.random() * pool.length)];
@@ -157,14 +181,17 @@
 
   function evolve(state, params) {
     const targetSize = state.population.length;
-    const topCount = Math.max(2, Math.round((targetSize * params.topNPercent) / 100));
-    const pool = buildPool(state.population, topCount, params.topEpsilon);
+    // Softmax weighs the WHOLE population by exp(fitness/T) — it replaces
+    // the top-N% pool rather than sampling within it.
+    const pool = params.selectionMethod === "softmax"
+      ? state.population
+      : buildPool(state.population, Math.max(2, Math.round((targetSize * params.topNPercent) / 100)), params.topEpsilon);
 
     const cursor = { i: 0 };
     const next = [makeIndividual(state.population[0].grid.map((r) => r.slice()))];
     while (next.length < targetSize) {
-      const pa = selectParent(pool, params.selectionMethod, params.selectionEpsilon, cursor);
-      const pb = selectParent(pool, params.selectionMethod, params.selectionEpsilon, cursor);
+      const pa = selectParent(pool, params.selectionMethod, params.selectionEpsilon, params.temperature, cursor);
+      const pb = selectParent(pool, params.selectionMethod, params.selectionEpsilon, params.temperature, cursor);
       const crossed = crossover(pa.grid, pb.grid, resolveCrossoverMethod(params.crossoverMethod));
       const { grid } = mutate(crossed, params.mutationRate);
       next.push(makeIndividual(grid));
@@ -188,6 +215,7 @@
     mutate,
     buildPool,
     selectParent,
+    selectSoftmax,
     makeIndividual,
     initPopulation,
     statsFor,

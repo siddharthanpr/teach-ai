@@ -34,16 +34,18 @@
           <span class="hint">Applies on next “Reset population”</span>
         </div>
 
-        <div class="field">
-          <label for="topNPercent">Top N% pool <span class="val" id="topNPercentVal">20%</span></label>
-          <input type="range" id="topNPercent" min="5" max="50" step="5" value="20">
-          <span class="hint">Size of the breeding pool, as a share of the population</span>
-        </div>
+        <div id="topNSection">
+          <div class="field">
+            <label for="topNPercent">Top N% pool <span class="val" id="topNPercentVal">20%</span></label>
+            <input type="range" id="topNPercent" min="5" max="50" step="5" value="20">
+            <span class="hint">Size of the breeding pool, as a share of the population</span>
+          </div>
 
-        <div class="field">
-          <label for="topEpsilon">Top N% epsilon <span class="val" id="topEpsilonVal">0.10</span></label>
-          <input type="range" id="topEpsilon" min="0" max="1" step="0.05" value="0.1">
-          <span class="hint">Per pool slot: probability ε it's ANY random individual instead of the next-best rank. 0 = strict cutoff</span>
+          <div class="field">
+            <label for="topEpsilon">Top N% epsilon <span class="val" id="topEpsilonVal">0.10</span></label>
+            <input type="range" id="topEpsilon" min="0" max="1" step="0.05" value="0.1">
+            <span class="hint">Per pool slot: probability ε it's ANY random individual instead of the next-best rank. 0 = strict cutoff</span>
+          </div>
         </div>
 
         <div class="field">
@@ -61,6 +63,7 @@
           <select id="selectionMethod">
             <option value="epsilon" selected>Epsilon-greedy</option>
             <option value="interleave">Interleave</option>
+            <option value="softmax">Softmax (temperature)</option>
           </select>
           <span class="hint" id="selectionHint">With probability ε pick any parent from the pool; otherwise fitness-proportional within the pool</span>
         </div>
@@ -69,6 +72,12 @@
           <label for="selectionEpsilon">Selection epsilon <span class="val" id="selectionEpsilonVal">0.10</span></label>
           <input type="range" id="selectionEpsilon" min="0" max="1" step="0.05" value="0.1">
           <span class="hint">A different ε from Top N%'s — this one governs picking a parent from the already-built pool</span>
+        </div>
+
+        <div class="field" id="temperatureField" hidden>
+          <label for="temperature">Temperature <span class="val" id="temperatureVal">10</span></label>
+          <input type="range" id="temperature" min="1" max="50" step="1" value="10">
+          <span class="hint">P(parent) ∝ exp(fitness / T) over the WHOLE population — no Top N% pool. Low T = greedy, high T = near-uniform</span>
         </div>
 
         <div class="field">
@@ -136,12 +145,12 @@
           <div class="explainer-grids">
             <div class="explainer-col">
               <h3>Parent A</h3>
-              <div class="who" style="color:var(--accent);">from the top-N% pool</div>
+              <div class="who" id="exWhoA" style="color:var(--accent);">from the top-N% pool</div>
               <div class="sudoku" id="exParentA"></div>
             </div>
             <div class="explainer-col">
               <h3>Parent B</h3>
-              <div class="who" style="color:var(--parentB);">from the top-N% pool</div>
+              <div class="who" id="exWhoB" style="color:var(--parentB);">from the top-N% pool</div>
               <div class="sudoku" id="exParentB"></div>
             </div>
             <div class="explainer-col">
@@ -176,6 +185,7 @@
 
   const els = {
     popSize: document.getElementById("popSize"),
+    topNSection: document.getElementById("topNSection"),
     topNPercent: document.getElementById("topNPercent"),
     topNPercentVal: document.getElementById("topNPercentVal"),
     crossoverMethod: document.getElementById("crossoverMethod"),
@@ -187,6 +197,9 @@
     selectionEpsilonField: document.getElementById("selectionEpsilonField"),
     selectionEpsilon: document.getElementById("selectionEpsilon"),
     selectionEpsilonVal: document.getElementById("selectionEpsilonVal"),
+    temperatureField: document.getElementById("temperatureField"),
+    temperature: document.getElementById("temperature"),
+    temperatureVal: document.getElementById("temperatureVal"),
     mutationRate: document.getElementById("mutationRate"),
     mutationRateVal: document.getElementById("mutationRateVal"),
     genCount: document.getElementById("genCount"),
@@ -205,6 +218,8 @@
     chartTooltip: document.getElementById("chartTooltip"),
     exParentA: document.getElementById("exParentA"),
     exParentB: document.getElementById("exParentB"),
+    exWhoA: document.getElementById("exWhoA"),
+    exWhoB: document.getElementById("exWhoB"),
     exChild: document.getElementById("exChild"),
     exStatus: document.getElementById("exStatus"),
     btnShowExample: document.getElementById("btnShowExample"),
@@ -220,6 +235,7 @@
       selectionMethod: els.selectionMethod.value,
       topEpsilon: Number(els.topEpsilon.value),
       selectionEpsilon: Number(els.selectionEpsilon.value),
+      temperature: Number(els.temperature.value),
       mutationRate: Number(els.mutationRate.value),
     };
   }
@@ -439,12 +455,17 @@
 
   async function showExample() {
     const p = params();
-    const poolSize = Math.max(2, Math.round(state.population.length * p.topNPercent / 100));
-    const pool = ga.buildPool(state.population, poolSize, p.topEpsilon);
+    const pool = p.selectionMethod === "softmax"
+      ? state.population
+      : ga.buildPool(state.population, Math.max(2, Math.round(state.population.length * p.topNPercent / 100)), p.topEpsilon);
     const cursor = { i: Math.floor(Math.random() * pool.length) };
-    const pa = ga.selectParent(pool, p.selectionMethod, p.selectionEpsilon, cursor);
-    let pb = ga.selectParent(pool, p.selectionMethod, p.selectionEpsilon, cursor);
+    const pa = ga.selectParent(pool, p.selectionMethod, p.selectionEpsilon, p.temperature, cursor);
+    let pb = ga.selectParent(pool, p.selectionMethod, p.selectionEpsilon, p.temperature, cursor);
     if (pb === pa && pool.length > 1) pb = pool[(pool.indexOf(pa) + 1) % pool.length];
+
+    const whoText = p.selectionMethod === "softmax" ? "softmax-sampled, whole population" : "from the top-N% pool";
+    els.exWhoA.textContent = whoText;
+    els.exWhoB.textContent = whoText;
 
     renderSudoku(els.exParentA, pa.grid, { rowClassFn: () => "rowA" });
     renderSudoku(els.exParentB, pb.grid, { rowClassFn: () => "rowB" });
@@ -475,7 +496,16 @@
   const SELECTION_HINTS = {
     epsilon: "With probability ε pick any parent from the pool; otherwise fitness-proportional within the pool",
     interleave: "Cycles through the pool in rank order, giving every finalist an equal turn",
+    softmax: "P(parent) ∝ exp(fitness / T), sampled over the whole population — Top N% is ignored",
   };
+
+  function onSelectionMethodChange() {
+    const method = els.selectionMethod.value;
+    els.selectionEpsilonField.hidden = method !== "epsilon";
+    els.temperatureField.hidden = method !== "softmax";
+    els.topNSection.hidden = method === "softmax";
+    els.selectionHint.textContent = SELECTION_HINTS[method];
+  }
 
   els.topNPercent.addEventListener("input", () => {
     els.topNPercentVal.textContent = els.topNPercent.value + "%";
@@ -487,22 +517,21 @@
   els.selectionEpsilon.addEventListener("input", () => {
     els.selectionEpsilonVal.textContent = Number(els.selectionEpsilon.value).toFixed(2);
   });
+  els.temperature.addEventListener("input", () => {
+    els.temperatureVal.textContent = els.temperature.value;
+  });
   els.mutationRate.addEventListener("input", () => {
     els.mutationRateVal.textContent = Number(els.mutationRate.value).toFixed(2);
   });
   els.crossoverMethod.addEventListener("change", () => {
     els.crossoverHint.textContent = CROSSOVER_HINTS[els.crossoverMethod.value];
   });
-  els.selectionMethod.addEventListener("change", () => {
-    const isEpsilon = els.selectionMethod.value === "epsilon";
-    els.selectionEpsilonField.hidden = !isEpsilon;
-    els.selectionHint.textContent = SELECTION_HINTS[els.selectionMethod.value];
-  });
+  els.selectionMethod.addEventListener("change", onSelectionMethodChange);
   els.btnSimulate.addEventListener("click", simulate);
   els.btnReset.addEventListener("click", resetPopulation);
   els.btnShowExample.addEventListener("click", showExample);
 
-  els.selectionEpsilonField.hidden = els.selectionMethod.value !== "epsilon";
+  onSelectionMethodChange();
   resetPopulation();
   attachHover();
 
