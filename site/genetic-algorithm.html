@@ -106,7 +106,7 @@
 
         <div class="field">
           <label for="genCount">Generations per simulate</label>
-          <input type="number" id="genCount" min="1" max="300" value="10">
+          <input type="number" id="genCount" min="1" value="10">
         </div>
 
         <div class="btn-row">
@@ -458,17 +458,24 @@
   }
 
   async function simulate() {
-    const n = Math.min(300, Math.max(1, Number(els.genCount.value) || 10));
+    const n = Math.max(1, Math.floor(Number(els.genCount.value)) || 10);
     els.genCount.value = n;
     setControlsDisabled(true);
     const p = params();
-    const delay = n > 40 ? 15 : n > 15 ? 50 : 110;
+    const delay = n > 200 ? 0 : n > 40 ? 15 : n > 15 ? 50 : 110;
+    // No cap on generations, but re-rendering the DOM every single tick
+    // would be prohibitively slow for huge n — throttle to ~300 redraws
+    // total, always including the final one, while `ga.evolve` itself
+    // still runs every generation.
+    const renderEvery = Math.max(1, Math.ceil(n / 300));
     for (let i = 0; i < n; i++) {
       ga.evolve(state, p);
-      renderChampion();
-      renderStats();
-      renderChart();
-      if (delay > 0) await sleep(delay);
+      if (i % renderEvery === 0 || i === n - 1) {
+        renderChampion();
+        renderStats();
+        renderChart();
+        await sleep(delay);
+      }
     }
     setControlsDisabled(false);
   }
