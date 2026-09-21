@@ -249,7 +249,14 @@
       : buildPool(state.population, topCount, params.topEpsilon);
 
     const cursor = { i: 0 };
-    const next = [makeIndividual(state.population[0].grid.map((r) => r.slice()))];
+    const next = [makeIndividual(state.population[0].grid.map((r) => r.slice()))]; // elitism: keep the champion
+
+    // Random injection: replace a share of each new generation with brand-new
+    // random individuals instead of bred children — a cheap diversity boost
+    // against premature convergence.
+    const injectCount = Math.min(targetSize - 1, Math.round((targetSize * (params.injectionPercent || 0)) / 100));
+    for (let i = 0; i < injectCount; i++) next.push(makeIndividual(randomIndividual()));
+
     while (next.length < targetSize) {
       const pa = selectParent(pool, params.selectionMethod, params.selectionEpsilon, params.selectionTemperature, cursor);
       const pb = selectParent(pool, params.selectionMethod, params.selectionEpsilon, params.selectionTemperature, cursor);

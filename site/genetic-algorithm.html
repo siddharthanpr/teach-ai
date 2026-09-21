@@ -99,6 +99,12 @@
         </div>
 
         <div class="field">
+          <label for="injectionPercent">Random injection <span class="val" id="injectionPercentVal">5%</span></label>
+          <input type="range" id="injectionPercent" min="0" max="50" step="5" value="5">
+          <span class="hint">Share of each new generation replaced with brand-new random individuals, instead of bred children</span>
+        </div>
+
+        <div class="field">
           <label for="genCount">Generations per simulate</label>
           <input type="number" id="genCount" min="1" max="300" value="10">
         </div>
@@ -107,6 +113,11 @@
           <button class="btn-primary" id="btnSimulate">▶ Simulate</button>
           <button class="btn-secondary" id="btnReset">↻ Reset</button>
         </div>
+
+        <div class="btn-row">
+          <button class="btn-secondary" id="btnSaveSettings">💾 Save settings</button>
+        </div>
+        <div class="hint" id="settingsStatus" style="text-align:center;min-height:14px;"></div>
 
         <div class="stat-grid">
           <div class="stat"><div class="k">Generation</div><div class="v tabular" id="statGeneration">0</div></div>
@@ -219,9 +230,13 @@
     selectionTemperatureVal: document.getElementById("selectionTemperatureVal"),
     mutationRate: document.getElementById("mutationRate"),
     mutationRateVal: document.getElementById("mutationRateVal"),
+    injectionPercent: document.getElementById("injectionPercent"),
+    injectionPercentVal: document.getElementById("injectionPercentVal"),
     genCount: document.getElementById("genCount"),
     btnSimulate: document.getElementById("btnSimulate"),
     btnReset: document.getElementById("btnReset"),
+    btnSaveSettings: document.getElementById("btnSaveSettings"),
+    settingsStatus: document.getElementById("settingsStatus"),
     statGeneration: document.getElementById("statGeneration"),
     statBest: document.getElementById("statBest"),
     statAvg: document.getElementById("statAvg"),
@@ -256,6 +271,7 @@
       selectionEpsilon: Number(els.selectionEpsilon.value),
       selectionTemperature: Number(els.selectionTemperature.value),
       mutationRate: Number(els.mutationRate.value),
+      injectionPercent: Number(els.injectionPercent.value),
     };
   }
 
@@ -561,6 +577,9 @@
   els.mutationRate.addEventListener("input", () => {
     els.mutationRateVal.textContent = Number(els.mutationRate.value).toFixed(2);
   });
+  els.injectionPercent.addEventListener("input", () => {
+    els.injectionPercentVal.textContent = els.injectionPercent.value + "%";
+  });
   els.crossoverMethod.addEventListener("change", () => {
     els.crossoverHint.textContent = CROSSOVER_HINTS[els.crossoverMethod.value];
   });
@@ -569,10 +588,73 @@
   els.btnReset.addEventListener("click", resetPopulation);
   els.btnShowExample.addEventListener("click", showExample);
 
-  onPoolMethodChange();
-  onSelectionMethodChange();
+  // ---- save / restore settings (localStorage — per-viewer convenience) ----
+  const SETTINGS_KEY = "teachai-ga-settings-v1";
+  const SETTINGS_FIELDS = [
+    "popSize", "topNPercent", "poolMethod", "topEpsilon", "topTemperature",
+    "crossoverMethod", "selectionMethod", "selectionEpsilon", "selectionTemperature",
+    "mutationRate", "injectionPercent", "genCount",
+  ];
+
+  function collectSettings() {
+    const out = {};
+    for (const key of SETTINGS_FIELDS) out[key] = els[key].value;
+    return out;
+  }
+
+  function applySettings(saved) {
+    for (const key of SETTINGS_FIELDS) {
+      if (saved[key] !== undefined && els[key]) els[key].value = saved[key];
+    }
+    els.topNPercentVal.textContent = els.topNPercent.value + "%";
+    els.topEpsilonVal.textContent = Number(els.topEpsilon.value).toFixed(2);
+    els.topTemperatureVal.textContent = els.topTemperature.value;
+    els.selectionEpsilonVal.textContent = Number(els.selectionEpsilon.value).toFixed(2);
+    els.selectionTemperatureVal.textContent = els.selectionTemperature.value;
+    els.mutationRateVal.textContent = Number(els.mutationRate.value).toFixed(2);
+    els.injectionPercentVal.textContent = els.injectionPercent.value + "%";
+    els.crossoverHint.textContent = CROSSOVER_HINTS[els.crossoverMethod.value];
+    onPoolMethodChange();
+    onSelectionMethodChange();
+  }
+
+  let settingsStatusTimer = null;
+  function flashSettingsStatus(text) {
+    els.settingsStatus.textContent = text;
+    clearTimeout(settingsStatusTimer);
+    settingsStatusTimer = setTimeout(() => { els.settingsStatus.textContent = ""; }, 3000);
+  }
+
+  function saveSettings() {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(collectSettings()));
+      flashSettingsStatus("Saved ✓ — reopening this page will restore it");
+    } catch (e) {
+      flashSettingsStatus("Couldn't save (browser storage unavailable)");
+    }
+  }
+
+  function loadSettings() {
+    try {
+      const raw = localStorage.getItem(SETTINGS_KEY);
+      if (!raw) return false;
+      applySettings(JSON.parse(raw));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  els.btnSaveSettings.addEventListener("click", saveSettings);
+
+  const restoredSettings = loadSettings();
+  if (!restoredSettings) {
+    onPoolMethodChange();
+    onSelectionMethodChange();
+  }
   resetPopulation();
   attachHover();
+  if (restoredSettings) flashSettingsStatus("Restored your saved settings ✓");
 
   // Open in a working state rather than a blank one: run a short warm-up
   // and pull a live crossover example so the page shows what it does.
