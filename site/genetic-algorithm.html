@@ -165,6 +165,10 @@
 
           <div class="card chart-card">
             <div class="card-title">Fitness over generations</div>
+            <div class="chart-readout" id="chartReadout">
+              <span><span class="k">Best</span> <span class="v tabular" id="readoutBest">–</span> <span class="k">(all-time)</span></span>
+              <span><span class="k">Top N%</span> <span class="v tabular" id="readoutTopN">–</span> <span class="k">(this gen)</span></span>
+            </div>
             <div class="chart-legend">
               <span class="item avg"><span class="line"></span>Population average</span>
               <span class="item topn"><span class="line"></span>Top N% average</span>
@@ -270,6 +274,8 @@
     chartWrap: document.getElementById("chartWrap"),
     chartSvg: document.getElementById("chartSvg"),
     chartTooltip: document.getElementById("chartTooltip"),
+    readoutBest: document.getElementById("readoutBest"),
+    readoutTopN: document.getElementById("readoutTopN"),
     exParentA: document.getElementById("exParentA"),
     exParentB: document.getElementById("exParentB"),
     exWhoA: document.getElementById("exWhoA"),
@@ -359,7 +365,7 @@
   function renderChampion() {
     const best = state.population[0];
     renderSudoku(els.championGrid, best.grid, {});
-    els.championCaption.textContent = `Generation ${state.generation} champion`;
+    els.championCaption.textContent = `Best-ever: ${best.fitness}/${ga.MAX_FITNESS} · as of generation ${state.generation}`;
     els.solvedBadge.hidden = best.fitness !== ga.MAX_FITNESS;
   }
 
@@ -384,10 +390,16 @@
   function renderStats() {
     const s = ga.statsFor(state.population, params().topNPercent);
     els.statGeneration.textContent = state.generation;
+    // Best is monotonic across generations (elitism always carries the
+    // prior champion forward unchanged), so population[0].fitness IS the
+    // all-time best. Top N% is recomputed fresh from the CURRENT
+    // population every call, so it's always this generation's value.
     els.statBest.textContent = `${s.best} / ${ga.MAX_FITNESS}`;
     els.statAvg.textContent = s.avg.toFixed(1);
     els.statTopN.textContent = `${s.topN.toFixed(1)} ± ${s.topNStd.toFixed(1)}`;
     els.statBestBox.classList.toggle("solved", s.best === ga.MAX_FITNESS);
+    els.readoutBest.textContent = `${s.best} / ${ga.MAX_FITNESS}`;
+    els.readoutTopN.textContent = `${s.topN.toFixed(1)} ± ${s.topNStd.toFixed(1)}`;
   }
 
   // ---- chart ----
