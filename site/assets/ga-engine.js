@@ -60,16 +60,14 @@
     for (let j = 1; j < 9; j += 2) for (let i = 0; i < 9; i++) child[i][j] = b[i][j];
     return child;
   }
-  function crossoverBoth(a, b) {
-    // checkerboard: cell (r,c) comes from A on "light" squares, B on "dark" squares
-    const child = a.map((row) => row.slice());
-    for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) if ((r + c) % 2 !== 0) child[r][c] = b[r][c];
-    return child;
+  // "both": each crossover independently rolls rows-or-cols, rather than
+  // mixing the two axes within a single child.
+  function resolveCrossoverMethod(method) {
+    if (method === "both") return Math.random() < 0.5 ? "rows" : "cols";
+    return method;
   }
   function crossover(a, b, method) {
-    if (method === "cols") return crossoverCols(a, b);
-    if (method === "both") return crossoverBoth(a, b);
-    return crossoverRows(a, b);
+    return method === "cols" ? crossoverCols(a, b) : crossoverRows(a, b);
   }
 
   // One mutation roll per row: on a hit, swap two of that row's free cells.
@@ -143,7 +141,7 @@
     while (next.length < targetSize) {
       const pa = selectParent(pool, params.selectionMethod, params.epsilon, cursor);
       const pb = selectParent(pool, params.selectionMethod, params.epsilon, cursor);
-      const crossed = crossover(pa.grid, pb.grid, params.crossoverMethod);
+      const crossed = crossover(pa.grid, pb.grid, resolveCrossoverMethod(params.crossoverMethod));
       const { grid } = mutate(crossed, params.mutationRate);
       next.push(makeIndividual(grid));
     }
@@ -162,6 +160,7 @@
     randomIndividual,
     fitness,
     crossover,
+    resolveCrossoverMethod,
     mutate,
     selectParent,
     makeIndividual,

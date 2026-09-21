@@ -45,7 +45,7 @@
           <select id="crossoverMethod">
             <option value="rows" selected>Alternate rows</option>
             <option value="cols">Alternate columns</option>
-            <option value="both">Both (checkerboard)</option>
+            <option value="both">Both (mixed)</option>
           </select>
           <span class="hint" id="crossoverHint">Even rows from Parent A, odd rows from Parent B</span>
         </div>
@@ -235,10 +235,6 @@
           const cc = opts.colClassFn(c);
           if (cc) classes.push(cc);
         }
-        if (opts.cellClassFn) {
-          const ec = opts.cellClassFn(r, c);
-          if (ec) classes.push(ec);
-        }
         const mutated = opts.mutRows && opts.mutRows.has(r);
         if (mutated && !isFixed) classes.push("mut-flash");
         if (mutated && isFixed) classes.push("rattle");
@@ -410,15 +406,14 @@
   }
 
   // ---- crossover & mutation explainer ----
-  function crossoverChildOpts(method) {
-    if (method === "cols") return { colClassFn: (c) => (c % 2 === 0 ? "colA" : "colB") };
-    if (method === "both") return { cellClassFn: (r, c) => ((r + c) % 2 === 0 ? "rowA" : "rowB") };
+  function crossoverChildOpts(resolvedMethod) {
+    if (resolvedMethod === "cols") return { colClassFn: (c) => (c % 2 === 0 ? "colA" : "colB") };
     return { rowClassFn: (r) => (r % 2 === 0 ? "rowA" : "rowB") };
   }
-  function crossoverDescription(method) {
-    if (method === "cols") return "even columns inherited from Parent A, odd columns from Parent B";
-    if (method === "both") return "cells alternate in a checkerboard — Parent A on light squares, Parent B on dark";
-    return "even rows inherited from Parent A, odd rows from Parent B";
+  function crossoverDescription(resolvedMethod, wasRandom) {
+    const picked = wasRandom ? ` — this child rolled <b>${resolvedMethod === "cols" ? "columns" : "rows"}</b>` : "";
+    if (resolvedMethod === "cols") return `even columns inherited from Parent A, odd columns from Parent B${picked}`;
+    return `even rows inherited from Parent A, odd rows from Parent B${picked}`;
   }
 
   async function showExample() {
@@ -433,12 +428,12 @@
     renderSudoku(els.exParentA, pa.grid, { rowClassFn: () => "rowA" });
     renderSudoku(els.exParentB, pb.grid, { rowClassFn: () => "rowB" });
 
-    const method = p.crossoverMethod;
-    const childOpts = crossoverChildOpts(method);
+    const resolvedMethod = ga.resolveCrossoverMethod(p.crossoverMethod);
+    const childOpts = crossoverChildOpts(resolvedMethod);
 
-    const crossedGrid = ga.crossover(pa.grid, pb.grid, method);
+    const crossedGrid = ga.crossover(pa.grid, pb.grid, resolvedMethod);
     renderSudoku(els.exChild, crossedGrid, childOpts);
-    els.exStatus.innerHTML = `<b>Crossover</b> — ${crossoverDescription(method)}.`;
+    els.exStatus.innerHTML = `<b>Crossover</b> — ${crossoverDescription(resolvedMethod, p.crossoverMethod === "both")}.`;
 
     await sleep(1300);
 
@@ -454,7 +449,7 @@
   const CROSSOVER_HINTS = {
     rows: "Even rows from Parent A, odd rows from Parent B",
     cols: "Even columns from Parent A, odd columns from Parent B",
-    both: "Cells alternate in a checkerboard between the two parents",
+    both: "Each child randomly gets alternate-rows or alternate-columns crossover",
   };
   const SELECTION_HINTS = {
     epsilon: "With probability ε pick a uniformly random parent from the pool; otherwise fitness-proportional",
