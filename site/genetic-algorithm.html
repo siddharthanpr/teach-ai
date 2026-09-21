@@ -142,6 +142,21 @@
             </div>
           </div>
 
+          <div class="card">
+            <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+              <span>Random candidate</span>
+              <span class="badge-solved" id="sampleSolvedBadge" hidden>✓ Solved</span>
+            </div>
+            <div class="sudoku" id="sampleGrid"></div>
+            <div class="grid-caption">
+              <span id="sampleCaption">Sampling the population…</span>
+            </div>
+            <div class="legend-row">
+              <div class="item"><span class="swatch" style="background:var(--surface-2);border:1px solid var(--line);"></span>Locked clue</div>
+              <div class="item"><span class="swatch" style="background:var(--surface);border:1px solid var(--line);"></span>Evolved cell</div>
+            </div>
+          </div>
+
           <div class="card chart-card">
             <div class="card-title">Fitness over generations</div>
             <div class="chart-legend">
@@ -241,6 +256,9 @@
     solvedBadge: document.getElementById("solvedBadge"),
     championGrid: document.getElementById("championGrid"),
     championCaption: document.getElementById("championCaption"),
+    sampleGrid: document.getElementById("sampleGrid"),
+    sampleCaption: document.getElementById("sampleCaption"),
+    sampleSolvedBadge: document.getElementById("sampleSolvedBadge"),
     chartWrap: document.getElementById("chartWrap"),
     chartSvg: document.getElementById("chartSvg"),
     chartTooltip: document.getElementById("chartTooltip"),
@@ -324,6 +342,7 @@
 
   function renderAll() {
     renderChampion();
+    renderRandomSample();
     renderStats();
     renderChart();
   }
@@ -333,6 +352,24 @@
     renderSudoku(els.championGrid, best.grid, {});
     els.championCaption.textContent = `Generation ${state.generation} champion`;
     els.solvedBadge.hidden = best.fitness !== ga.MAX_FITNESS;
+  }
+
+  // Shows a uniformly random individual from the population each tick, so
+  // it reads as the algorithm actually trying many candidates — not just
+  // the one champion smoothly improving. Once solved, locks onto the real
+  // solution instead of continuing to sample, with a green check.
+  function renderRandomSample() {
+    const best = state.population[0];
+    if (best.fitness === ga.MAX_FITNESS) {
+      renderSudoku(els.sampleGrid, best.grid, {});
+      els.sampleCaption.textContent = `Solved at generation ${state.generation}!`;
+      els.sampleSolvedBadge.hidden = false;
+      return;
+    }
+    const pick = state.population[Math.floor(Math.random() * state.population.length)];
+    renderSudoku(els.sampleGrid, pick.grid, {});
+    els.sampleCaption.textContent = `Generation ${state.generation} — random candidate (${pick.fitness}/${ga.MAX_FITNESS})`;
+    els.sampleSolvedBadge.hidden = true;
   }
 
   function renderStats() {
@@ -479,12 +516,15 @@
     for (let i = 0; i < n; i++) {
       if (myToken !== runToken) return; // Reset was clicked mid-run — stop touching state
       ga.evolve(state, p);
-      if (i % renderEvery === 0 || i === n - 1) {
+      const solved = state.population[0].fitness === ga.MAX_FITNESS;
+      if (solved || i % renderEvery === 0 || i === n - 1) {
         renderChampion();
+        renderRandomSample();
         renderStats();
         renderChart();
         await sleep(delay);
       }
+      if (solved) break; // no point running further generations once solved
     }
     if (myToken === runToken) setControlsDisabled(false);
   }
