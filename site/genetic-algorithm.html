@@ -1,0 +1,470 @@
+<title>Genetic Sudoku</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/style.css">
+
+<div class="wrap">
+  <header class="site-header">
+    <a class="wordmark" href="index.html">Teach<span class="dot">·</span>AI</a>
+    <nav class="site-nav">
+      <a href="index.html">Overview</a>
+      <a href="genetic-algorithm.html" class="active">Genetic Algorithms</a>
+      <a href="neural-networks.html" class="soon">Neural Networks</a>
+    </nav>
+  </header>
+
+  <main class="stack">
+    <div>
+      <h1 style="font-size:26px;margin-bottom:6px;">Evolving a Sudoku solution</h1>
+      <p style="color:var(--ink-dim);font-size:13.5px;max-width:70ch;margin:0;">
+        Each individual is a full 9×9 grid with the puzzle's clues locked in place. Fitness counts how many rows, columns
+        and 3×3 boxes contain all nine digits with no repeats — <span class="mono">243</span> is a perfect solve.
+      </p>
+    </div>
+
+    <div class="ga-layout">
+      <!-- Sidebar: hyperparameters -->
+      <div class="card">
+        <div class="card-title">Hyperparameters</div>
+
+        <div class="field">
+          <label for="popSize">Population size</label>
+          <input type="number" id="popSize" min="10" max="400" step="10" value="120">
+          <span class="hint">Applies on next “Reset population”</span>
+        </div>
+
+        <div class="field">
+          <label for="topNPercent">Top N% <span class="val" id="topNPercentVal">20%</span></label>
+          <input type="range" id="topNPercent" min="5" max="50" step="5" value="20">
+          <span class="hint">Parents are drawn only from the fittest N% each generation</span>
+        </div>
+
+        <div class="field">
+          <label for="crossoverMethod">Crossover method</label>
+          <select id="crossoverMethod">
+            <option value="rows" selected>Alternate rows</option>
+            <option value="cols">Alternate columns</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="selectionMethod">Selection method</label>
+          <select id="selectionMethod">
+            <option value="fitness" selected>Fitness-proportional</option>
+            <option value="epsilon">Epsilon-greedy</option>
+          </select>
+        </div>
+
+        <div class="field" id="epsilonField" hidden>
+          <label for="epsilon">Epsilon <span class="val" id="epsilonVal">0.10</span></label>
+          <input type="range" id="epsilon" min="0" max="1" step="0.05" value="0.1">
+          <span class="hint">With probability ε, pick a uniformly random parent; otherwise fitness-proportional</span>
+        </div>
+
+        <div class="field">
+          <label for="mutationRate">Mutation rate <span class="val" id="mutationRateVal">0.10</span></label>
+          <input type="range" id="mutationRate" min="0" max="0.5" step="0.01" value="0.1">
+          <span class="hint">Chance each row swaps two free cells</span>
+        </div>
+
+        <div class="field">
+          <label for="genCount">Generations per simulate</label>
+          <input type="number" id="genCount" min="1" max="300" value="10">
+        </div>
+
+        <div class="btn-row">
+          <button class="btn-primary" id="btnSimulate">▶ Simulate</button>
+          <button class="btn-secondary" id="btnReset">↻ Reset</button>
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat"><div class="k">Generation</div><div class="v tabular" id="statGeneration">0</div></div>
+          <div class="stat" id="statBestBox"><div class="k">Best fitness</div><div class="v tabular" id="statBest">–</div></div>
+          <div class="stat"><div class="k">Avg fitness</div><div class="v tabular" id="statAvg">–</div></div>
+          <div class="stat"><div class="k">Top N% fitness</div><div class="v tabular" id="statTopN">–</div></div>
+        </div>
+      </div>
+
+      <!-- Main stage -->
+      <div class="stack">
+        <div class="stage-row">
+          <div class="card">
+            <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
+              <span>Champion</span>
+              <span class="badge-solved" id="solvedBadge" hidden>✓ Solved</span>
+            </div>
+            <div class="sudoku" id="championGrid"></div>
+            <div class="grid-caption">
+              <span id="championCaption">Generation 0 champion</span>
+            </div>
+            <div class="legend-row">
+              <div class="item"><span class="swatch" style="background:var(--surface-2);border:1px solid var(--line);"></span>Locked clue</div>
+              <div class="item"><span class="swatch" style="background:var(--surface);border:1px solid var(--line);"></span>Evolved cell</div>
+            </div>
+          </div>
+
+          <div class="card chart-card">
+            <div class="card-title">Fitness over generations</div>
+            <div class="chart-legend">
+              <span class="item avg"><span class="line"></span>Population average</span>
+              <span class="item topn"><span class="line"></span>Top N% average</span>
+              <span class="item best"><span class="line"></span>Best individual</span>
+            </div>
+            <div id="chartWrap" style="position:relative;">
+              <svg id="chartSvg" class="chart-svg" viewBox="0 0 686 280"></svg>
+              <div class="chart-tooltip" id="chartTooltip" hidden></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Explainer -->
+        <div class="card">
+          <div class="card-title">Crossover &amp; mutation, explained</div>
+          <div class="status-line" id="exStatus">Click “Show example” to pull two parents from the current top pool.</div>
+
+          <div class="explainer-grids">
+            <div class="explainer-col">
+              <h3>Parent A</h3>
+              <div class="who" style="color:var(--accent);">from the top-N% pool</div>
+              <div class="sudoku" id="exParentA"></div>
+            </div>
+            <div class="explainer-col">
+              <h3>Parent B</h3>
+              <div class="who" style="color:var(--parentB);">from the top-N% pool</div>
+              <div class="sudoku" id="exParentB"></div>
+            </div>
+            <div class="explainer-col">
+              <h3>Child</h3>
+              <div class="who">crossover, then mutation</div>
+              <div class="sudoku" id="exChild"></div>
+            </div>
+          </div>
+
+          <div class="legend-row" style="margin-top:20px;">
+            <div class="item"><span class="swatch" style="background:var(--accent-soft);"></span>From Parent A</div>
+            <div class="item"><span class="swatch" style="background:var(--parentB-soft);"></span>From Parent B</div>
+            <div class="item"><span class="swatch" style="background:var(--mutation);"></span>Mutated this round</div>
+            <div class="item"><span class="swatch locked-demo" style="background:var(--surface-2);border:1px solid var(--line);"></span>Locked clue — rattles, never moves</div>
+          </div>
+
+          <div class="btn-row" style="max-width:220px;margin-top:18px;">
+            <button class="btn-secondary" id="btnShowExample">🔀 Show example</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script src="assets/ga-engine.js"></script>
+<script>
+(function () {
+  "use strict";
+  const ga = window.TeachAI.ga;
+  const PUZZLE = ga.PUZZLE;
+
+  const els = {
+    popSize: document.getElementById("popSize"),
+    topNPercent: document.getElementById("topNPercent"),
+    topNPercentVal: document.getElementById("topNPercentVal"),
+    crossoverMethod: document.getElementById("crossoverMethod"),
+    selectionMethod: document.getElementById("selectionMethod"),
+    epsilonField: document.getElementById("epsilonField"),
+    epsilon: document.getElementById("epsilon"),
+    epsilonVal: document.getElementById("epsilonVal"),
+    mutationRate: document.getElementById("mutationRate"),
+    mutationRateVal: document.getElementById("mutationRateVal"),
+    genCount: document.getElementById("genCount"),
+    btnSimulate: document.getElementById("btnSimulate"),
+    btnReset: document.getElementById("btnReset"),
+    statGeneration: document.getElementById("statGeneration"),
+    statBest: document.getElementById("statBest"),
+    statAvg: document.getElementById("statAvg"),
+    statTopN: document.getElementById("statTopN"),
+    statBestBox: document.getElementById("statBestBox"),
+    solvedBadge: document.getElementById("solvedBadge"),
+    championGrid: document.getElementById("championGrid"),
+    championCaption: document.getElementById("championCaption"),
+    chartWrap: document.getElementById("chartWrap"),
+    chartSvg: document.getElementById("chartSvg"),
+    chartTooltip: document.getElementById("chartTooltip"),
+    exParentA: document.getElementById("exParentA"),
+    exParentB: document.getElementById("exParentB"),
+    exChild: document.getElementById("exChild"),
+    exStatus: document.getElementById("exStatus"),
+    btnShowExample: document.getElementById("btnShowExample"),
+  };
+
+  const state = { population: [], generation: 0, history: [] };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function params() {
+    return {
+      topNPercent: Number(els.topNPercent.value),
+      crossoverMethod: els.crossoverMethod.value,
+      selectionMethod: els.selectionMethod.value,
+      epsilon: Number(els.epsilon.value),
+      mutationRate: Number(els.mutationRate.value),
+    };
+  }
+
+  function renderSudoku(container, grid, opts) {
+    opts = opts || {};
+    container.innerHTML = "";
+    const frag = document.createDocumentFragment();
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        const cell = document.createElement("div");
+        const classes = ["cell"];
+        if (c % 3 === 2 && c !== 8) classes.push("b-right");
+        if (r % 3 === 2 && r !== 8) classes.push("b-bottom");
+        const isFixed = PUZZLE[r][c] !== 0;
+        classes.push(isFixed ? "locked" : "free");
+
+        if (opts.rowClassFn) {
+          const rc = opts.rowClassFn(r);
+          if (rc) classes.push(rc);
+        }
+        if (opts.colClassFn) {
+          const cc = opts.colClassFn(c);
+          if (cc) classes.push(cc);
+        }
+        const mutated = opts.mutRows && opts.mutRows.has(r);
+        if (mutated && !isFixed) classes.push("mut-flash");
+        if (mutated && isFixed) classes.push("rattle");
+
+        cell.className = classes.join(" ");
+        cell.innerHTML = isFixed
+          ? `<span class="bar"></span><span>${grid[r][c]}</span>`
+          : `<span>${grid[r][c]}</span>`;
+        frag.appendChild(cell);
+      }
+    }
+    container.appendChild(frag);
+  }
+
+  function resetPopulation() {
+    const size = Math.min(400, Math.max(10, Number(els.popSize.value) || 100));
+    els.popSize.value = size;
+    state.population = ga.initPopulation(size);
+    state.generation = 0;
+    const s = ga.statsFor(state.population, params().topNPercent);
+    state.history = [{ gen: 0, avg: s.avg, topN: s.topN, best: s.best }];
+    renderAll();
+  }
+
+  function renderAll() {
+    renderChampion();
+    renderStats();
+    renderChart();
+  }
+
+  function renderChampion() {
+    const best = state.population[0];
+    renderSudoku(els.championGrid, best.grid, {});
+    els.championCaption.textContent = `Generation ${state.generation} champion`;
+    els.solvedBadge.hidden = best.fitness !== ga.MAX_FITNESS;
+  }
+
+  function renderStats() {
+    const s = ga.statsFor(state.population, params().topNPercent);
+    els.statGeneration.textContent = state.generation;
+    els.statBest.textContent = `${s.best} / ${ga.MAX_FITNESS}`;
+    els.statAvg.textContent = s.avg.toFixed(1);
+    els.statTopN.textContent = s.topN.toFixed(1);
+    els.statBestBox.classList.toggle("solved", s.best === ga.MAX_FITNESS);
+  }
+
+  // ---- chart ----
+  const CHART_W = 640, CHART_H = 280;
+  const PAD = { l: 40, r: 16, t: 16, b: 28 };
+  let chartScale = null;
+
+  function renderChart() {
+    const history = state.history;
+    const maxGen = history[history.length - 1].gen || 1;
+    const innerW = CHART_W - PAD.l - PAD.r;
+    const innerH = CHART_H - PAD.t - PAD.b;
+    const x = (gen) => PAD.l + (maxGen === 0 ? 0 : (gen / maxGen) * innerW);
+    const y = (val) => PAD.t + innerH - (val / ga.MAX_FITNESS) * innerH;
+    chartScale = { x, y, history, maxGen, innerW, innerH };
+
+    const gridVals = [0, 50, 100, 150, 200, 243];
+    const gridSvg = gridVals
+      .map((v) => {
+        const yy = y(v);
+        const cls = v === 243 ? "max-line" : "grid-line";
+        return `<line x1="${PAD.l}" y1="${yy}" x2="${CHART_W - PAD.r}" y2="${yy}" class="${cls}" />
+          <text x="${PAD.l - 8}" y="${yy + 3}" text-anchor="end" class="axis-label">${v}</text>`;
+      })
+      .join("");
+
+    const xTickEvery = Math.max(1, Math.ceil(maxGen / 6));
+    let xTicks = "";
+    for (let g = 0; g <= maxGen; g += xTickEvery) {
+      xTicks += `<text x="${x(g)}" y="${CHART_H - PAD.b + 16}" text-anchor="middle" class="axis-label">${g}</text>`;
+    }
+
+    function pathFor(key) {
+      return history.map((h, i) => `${i === 0 ? "M" : "L"}${x(h.gen).toFixed(1)},${y(h[key]).toFixed(1)}`).join(" ");
+    }
+
+    const last = history[history.length - 1];
+    const endLabels = `
+      <text x="${x(last.gen) + 6}" y="${y(last.avg) + 3}" class="end-label" fill="var(--series-avg)">avg</text>
+      <text x="${x(last.gen) + 6}" y="${y(last.topN) + 3}" class="end-label" fill="var(--series-topn)">top N%</text>
+      <text x="${x(last.gen) + 6}" y="${y(last.best) + 3}" class="end-label" fill="var(--series-best)">best</text>
+    `;
+
+    els.chartSvg.setAttribute("viewBox", `0 0 ${CHART_W + 46} ${CHART_H}`);
+    els.chartSvg.innerHTML = `
+      ${gridSvg}
+      <path d="${pathFor("avg")}" class="line-avg" />
+      <path d="${pathFor("topN")}" class="line-topn" />
+      <path d="${pathFor("best")}" class="line-best" />
+      ${endLabels}
+      ${xTicks}
+      <text x="${(PAD.l + CHART_W - PAD.r) / 2}" y="${CHART_H - 2}" text-anchor="middle" class="axis-label">generation</text>
+      <g id="hoverLayer"></g>
+    `;
+  }
+
+  function attachHover() {
+    const svg = els.chartSvg;
+    const tooltip = els.chartTooltip;
+
+    function handleMove(evt) {
+      if (!chartScale) return;
+      const rect = svg.getBoundingClientRect();
+      const vb = svg.viewBox.baseVal;
+      const scale = vb.width / rect.width;
+      const px = (evt.clientX - rect.left) * scale;
+      const { history, maxGen, innerW } = chartScale;
+      const relGen = maxGen === 0 ? 0 : ((px - PAD.l) / innerW) * maxGen;
+      const gen = Math.min(maxGen, Math.max(0, Math.round(relGen)));
+      const point = history.find((h) => h.gen === gen) || history[history.length - 1];
+
+      const hoverLayer = svg.querySelector("#hoverLayer");
+      if (!hoverLayer) return;
+      const hx = chartScale.x(point.gen);
+      hoverLayer.innerHTML = `
+        <line x1="${hx}" y1="${PAD.t}" x2="${hx}" y2="${CHART_H - PAD.b}" class="crosshair" />
+        <circle cx="${hx}" cy="${chartScale.y(point.avg)}" r="3.5" fill="var(--series-avg)" class="hover-dot" />
+        <circle cx="${hx}" cy="${chartScale.y(point.topN)}" r="3.5" fill="var(--series-topn)" class="hover-dot" />
+        <circle cx="${hx}" cy="${chartScale.y(point.best)}" r="3.5" fill="var(--series-best)" class="hover-dot" />
+      `;
+
+      const wrapRect = els.chartWrap.getBoundingClientRect();
+      tooltip.style.left = `${rect.left - wrapRect.left + hx / scale}px`;
+      tooltip.style.top = `${rect.top - wrapRect.top + chartScale.y(point.best) / scale}px`;
+      tooltip.innerHTML = `
+        <div><b>Generation ${point.gen}</b></div>
+        <div class="row"><span class="dot" style="background:var(--series-best)"></span>best ${point.best.toFixed(0)}</div>
+        <div class="row"><span class="dot" style="background:var(--series-topn)"></span>top N% ${point.topN.toFixed(1)}</div>
+        <div class="row"><span class="dot" style="background:var(--series-avg)"></span>avg ${point.avg.toFixed(1)}</div>
+      `;
+      tooltip.hidden = false;
+    }
+
+    function handleLeave() {
+      tooltip.hidden = true;
+      const hoverLayer = svg.querySelector("#hoverLayer");
+      if (hoverLayer) hoverLayer.innerHTML = "";
+    }
+
+    svg.addEventListener("mousemove", handleMove);
+    svg.addEventListener("mouseleave", handleLeave);
+  }
+
+  // ---- simulate ----
+  function setControlsDisabled(disabled) {
+    els.btnSimulate.disabled = disabled;
+    els.btnReset.disabled = disabled;
+    els.btnShowExample.disabled = disabled;
+  }
+
+  async function simulate() {
+    const n = Math.min(300, Math.max(1, Number(els.genCount.value) || 10));
+    els.genCount.value = n;
+    setControlsDisabled(true);
+    const p = params();
+    const delay = n > 40 ? 15 : n > 15 ? 50 : 110;
+    for (let i = 0; i < n; i++) {
+      ga.evolve(state, p);
+      renderChampion();
+      renderStats();
+      renderChart();
+      if (delay > 0) await sleep(delay);
+    }
+    setControlsDisabled(false);
+  }
+
+  // ---- crossover & mutation explainer ----
+  async function showExample() {
+    const p = params();
+    const poolSize = Math.max(2, Math.round(state.population.length * p.topNPercent / 100));
+    const pool = state.population.slice(0, poolSize);
+    const pa = pool[Math.floor(Math.random() * pool.length)];
+    let pb = pool[Math.floor(Math.random() * pool.length)];
+    if (pb === pa && pool.length > 1) pb = pool[(pool.indexOf(pa) + 1) % pool.length];
+
+    renderSudoku(els.exParentA, pa.grid, { rowClassFn: () => "rowA" });
+    renderSudoku(els.exParentB, pb.grid, { rowClassFn: () => "rowB" });
+
+    const method = p.crossoverMethod;
+    const childOpts = method === "cols"
+      ? { colClassFn: (c) => (c % 2 === 0 ? "colA" : "colB") }
+      : { rowClassFn: (r) => (r % 2 === 0 ? "rowA" : "rowB") };
+
+    const crossedGrid = ga.crossover(pa.grid, pb.grid, method);
+    renderSudoku(els.exChild, crossedGrid, childOpts);
+    const axisWord = method === "cols" ? "columns" : "rows";
+    els.exStatus.innerHTML = `<b>Crossover</b> (alternate ${axisWord}) — even ${axisWord} inherited from <span class="p1">Parent A</span>, odd ${axisWord} from <span class="p2">Parent B</span>.`;
+
+    await sleep(1300);
+
+    const { grid: mutatedGrid, rows } = ga.mutate(crossedGrid, p.mutationRate);
+    renderSudoku(els.exChild, mutatedGrid, { ...childOpts, mutRows: new Set(rows) });
+
+    els.exStatus.innerHTML = rows.length
+      ? `<b class="mut">Mutation</b> swapped free cells in row${rows.length > 1 ? "s" : ""} ${rows.join(", ")}. Locked clues rattle in place — they never move.`
+      : `No mutation triggered this round. Click “Show example” again to re-roll.`;
+  }
+
+  // ---- wiring ----
+  els.topNPercent.addEventListener("input", () => {
+    els.topNPercentVal.textContent = els.topNPercent.value + "%";
+    renderStats();
+  });
+  els.epsilon.addEventListener("input", () => {
+    els.epsilonVal.textContent = Number(els.epsilon.value).toFixed(2);
+  });
+  els.mutationRate.addEventListener("input", () => {
+    els.mutationRateVal.textContent = Number(els.mutationRate.value).toFixed(2);
+  });
+  els.selectionMethod.addEventListener("change", () => {
+    els.epsilonField.hidden = els.selectionMethod.value !== "epsilon";
+  });
+  els.btnSimulate.addEventListener("click", simulate);
+  els.btnReset.addEventListener("click", resetPopulation);
+  els.btnShowExample.addEventListener("click", showExample);
+
+  els.epsilonField.hidden = els.selectionMethod.value !== "epsilon";
+  resetPopulation();
+  attachHover();
+
+  // Open in a working state rather than a blank one: run a short warm-up
+  // and pull a live crossover example so the page shows what it does.
+  (async () => {
+    setControlsDisabled(true);
+    const p = params();
+    for (let i = 0; i < 18 && state.population[0].fitness < ga.MAX_FITNESS; i++) {
+      ga.evolve(state, p);
+    }
+    renderAll();
+    setControlsDisabled(false);
+    showExample();
+  })();
+})();
+</script>
