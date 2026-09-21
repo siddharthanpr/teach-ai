@@ -52,13 +52,61 @@
     return score;
   }
 
+  // How many duplicate-conflicts row r's own cells cause, via their column
+  // and box memberships, within THIS grid. Lower = cleaner fit in context.
+  function rowConflictScore(grid, r) {
+    let conflicts = 0;
+    for (let c = 0; c < 9; c++) {
+      const v = grid[r][c];
+      for (let i = 0; i < 9; i++) if (i !== r && grid[i][c] === v) conflicts++;
+      const br = Math.floor(r / 3) * 3, bc = Math.floor(c / 3) * 3;
+      for (let i = br; i < br + 3; i++) {
+        for (let j = bc; j < bc + 3; j++) {
+          if ((i !== r || j !== c) && grid[i][j] === v) conflicts++;
+        }
+      }
+    }
+    return conflicts;
+  }
+  // Same idea for column c: conflicts its cells cause via their row/box memberships.
+  function colConflictScore(grid, c) {
+    let conflicts = 0;
+    for (let r = 0; r < 9; r++) {
+      const v = grid[r][c];
+      for (let j = 0; j < 9; j++) if (j !== c && grid[r][j] === v) conflicts++;
+      const br = Math.floor(r / 3) * 3, bc = Math.floor(c / 3) * 3;
+      for (let i = br; i < br + 3; i++) {
+        for (let j = bc; j < bc + 3; j++) {
+          if ((i !== r || j !== c) && grid[i][j] === v) conflicts++;
+        }
+      }
+    }
+    return conflicts;
+  }
+
+  // Fitness-guided crossover: for each row (or column), take it from
+  // whichever parent has FEWER conflicts there — not a fixed parity
+  // pattern. Returns the child plus a source map ('A'/'B' per index) so
+  // callers can show which parent actually won each slot.
   function crossoverRows(a, b) {
-    return a.map((row, i) => (i % 2 === 0 ? row.slice() : b[i].slice()));
+    const child = [];
+    const source = [];
+    for (let r = 0; r < 9; r++) {
+      const useA = rowConflictScore(a, r) <= rowConflictScore(b, r);
+      child.push((useA ? a : b)[r].slice());
+      source.push(useA ? "A" : "B");
+    }
+    return { child, source };
   }
   function crossoverCols(a, b) {
     const child = a.map((row) => row.slice());
-    for (let j = 1; j < 9; j += 2) for (let i = 0; i < 9; i++) child[i][j] = b[i][j];
-    return child;
+    const source = [];
+    for (let c = 0; c < 9; c++) {
+      const useA = colConflictScore(a, c) <= colConflictScore(b, c);
+      source.push(useA ? "A" : "B");
+      if (!useA) for (let r = 0; r < 9; r++) child[r][c] = b[r][c];
+    }
+    return { child, source };
   }
   // "both": each crossover independently rolls rows-or-cols, rather than
   // mixing the two axes within a single child.
@@ -88,14 +136,13 @@
     return { grid: g, rows };
   }
 
-  function selectFitnessProportional(pool) {
-    const total = pool.reduce((s, ind) => s + ind.fitness, 0);
-    let r = Math.random() * total;
-    for (const ind of pool) {
-      r -= ind.fitness;
-      if (r <= 0) return ind;
-    }
-    return pool[pool.length - 1];
+  // Actual greedy pick: the single fittest individual in the pool. The
+  // pool isn't guaranteed sorted (buildSoftmaxPool draws in random order),
+  // so this scans rather than assuming pool[0] is best.
+  function selectGreedy(pool) {
+    let best = pool[0];
+    for (const ind of pool) if (ind.fitness > best.fitness) best = ind;
+    return best;
   }
 
   // Builds the breeding pool with its OWN epsilon-greedy: for each of the
@@ -115,46 +162,58 @@
     return pool;
   }
 
-  // Boltzmann/softmax selection: P(i) ∝ exp(fitness_i / temperature), over
-  // WHATEVER set is passed in (the caller decides pool vs whole population).
-  // Subtracts the max fitness before exponentiating for numerical
-  // stability — this doesn't change the resulting distribution, it just
-  // keeps exp() from overflowing at low temperatures.
-  function selectSoftmax(individuals, temperature) {
+  // Boltzmann/softmax draw: P(i) ∝ exp(fitness_i / temperature) over the
+  // WHOLE population. Subtracts the max fitness before exponentiating for
+  // numerical stability — doesn't change the distribution, just keeps
+  // exp() from overflowing at low temperatures.
+  function selectSoftmax(population, temperature) {
     const t = Math.max(0.01, temperature);
     let maxF = -Infinity;
-    for (const ind of individuals) if (ind.fitness > maxF) maxF = ind.fitness;
-    const weights = individuals.map((ind) => Math.exp((ind.fitness - maxF) / t));
+    for (const ind of population) if (ind.fitness > maxF) maxF = ind.fitness;
+    const weights = population.map((ind) => Math.exp((ind.fitness - maxF) / t));
     const total = weights.reduce((a, b) => a + b, 0);
     let r = Math.random() * total;
-    for (let i = 0; i < individuals.length; i++) {
+    for (let i = 0; i < population.length; i++) {
       r -= weights[i];
-      if (r <= 0) return individuals[i];
+      if (r <= 0) return population[i];
     }
-    return individuals[individuals.length - 1];
+    return population[population.length - 1];
   }
 
-  // Picks a parent FROM an already-built pool (or, for "softmax", from
-  // whatever set is passed — evolve() passes the whole population, since
-  // softmax replaces the top-N% pool rather than sampling within it).
-  // "epsilon" — with probability selectionEpsilon, pick uniformly at
-  // random from the pool; otherwise fitness-proportional within the pool.
+  // Builds the breeding pool by repeatedly softmax-drawing (with
+  // replacement) from the WHOLE population, instead of a rank-based
+  // cutoff. This is an ALTERNATIVE to buildPool()/topEpsilon above — pick
+  // one pool-building method or the other, per poolMethod.
+  function buildSoftmaxPool(population, topCount, temperature) {
+    const pool = [];
+    for (let slot = 0; slot < topCount; slot++) pool.push(selectSoftmax(population, temperature));
+    return pool;
+  }
+
+  // Picks a parent FROM an already-built pool (whichever pool-building
+  // method produced it — this stage doesn't care). This is a SEPARATE
+  // softmax from buildSoftmaxPool's: its own selectionTemperature, applied
+  // to whichever pool already exists, not the whole population.
+  // "epsilon" — TRUE epsilon-greedy: with probability selectionEpsilon,
+  // explore by picking uniformly at random from the pool; otherwise
+  // (the "greedy" 1-ε branch) deterministically take the single fittest
+  // individual in the pool. No randomness at all on the greedy branch.
   // "interleave" — deterministic round-robin through the pool, in the
   // order it was built.
-  // "softmax" — Boltzmann selection with a temperature parameter.
-  function selectParent(pool, method, selectionEpsilon, temperature, cursor) {
+  // "softmax" — Boltzmann pick within the pool, using selectionTemperature.
+  function selectParent(pool, method, selectionEpsilon, selectionTemperature, cursor) {
     if (method === "interleave") {
       const ind = pool[cursor.i % pool.length];
       cursor.i += 1;
       return ind;
     }
     if (method === "softmax") {
-      return selectSoftmax(pool, temperature);
+      return selectSoftmax(pool, selectionTemperature);
     }
     if (Math.random() < selectionEpsilon) {
       return pool[Math.floor(Math.random() * pool.length)];
     }
-    return selectFitnessProportional(pool);
+    return selectGreedy(pool);
   }
 
   function makeIndividual(grid) {
@@ -181,19 +240,21 @@
 
   function evolve(state, params) {
     const targetSize = state.population.length;
-    // Softmax weighs the WHOLE population by exp(fitness/T) — it replaces
-    // the top-N% pool rather than sampling within it.
-    const pool = params.selectionMethod === "softmax"
-      ? state.population
-      : buildPool(state.population, Math.max(2, Math.round((targetSize * params.topNPercent) / 100)), params.topEpsilon);
+    const topCount = Math.max(2, Math.round((targetSize * params.topNPercent) / 100));
+    // poolMethod: "topn" (rank-based, fuzzed by topEpsilon) or "softmax"
+    // (drawn ∝ exp(fitness/topTemperature)) — two alternative ways to
+    // build the SAME-sized pool.
+    const pool = params.poolMethod === "softmax"
+      ? buildSoftmaxPool(state.population, topCount, params.topTemperature)
+      : buildPool(state.population, topCount, params.topEpsilon);
 
     const cursor = { i: 0 };
     const next = [makeIndividual(state.population[0].grid.map((r) => r.slice()))];
     while (next.length < targetSize) {
-      const pa = selectParent(pool, params.selectionMethod, params.selectionEpsilon, params.temperature, cursor);
-      const pb = selectParent(pool, params.selectionMethod, params.selectionEpsilon, params.temperature, cursor);
-      const crossed = crossover(pa.grid, pb.grid, resolveCrossoverMethod(params.crossoverMethod));
-      const { grid } = mutate(crossed, params.mutationRate);
+      const pa = selectParent(pool, params.selectionMethod, params.selectionEpsilon, params.selectionTemperature, cursor);
+      const pb = selectParent(pool, params.selectionMethod, params.selectionEpsilon, params.selectionTemperature, cursor);
+      const { child: crossedGrid } = crossover(pa.grid, pb.grid, resolveCrossoverMethod(params.crossoverMethod));
+      const { grid } = mutate(crossedGrid, params.mutationRate);
       next.push(makeIndividual(grid));
     }
     next.sort((a, b) => b.fitness - a.fitness);
@@ -214,6 +275,7 @@
     resolveCrossoverMethod,
     mutate,
     buildPool,
+    buildSoftmaxPool,
     selectParent,
     selectSoftmax,
     makeIndividual,

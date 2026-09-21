@@ -34,28 +34,40 @@
           <span class="hint">Applies on next “Reset population”</span>
         </div>
 
-        <div id="topNSection">
-          <div class="field">
-            <label for="topNPercent">Top N% pool <span class="val" id="topNPercentVal">20%</span></label>
-            <input type="range" id="topNPercent" min="5" max="50" step="5" value="20">
-            <span class="hint">Size of the breeding pool, as a share of the population</span>
-          </div>
+        <div class="field">
+          <label for="topNPercent">Pool size <span class="val" id="topNPercentVal">20%</span></label>
+          <input type="range" id="topNPercent" min="5" max="50" step="5" value="20">
+          <span class="hint">Breeding pool size, as a share of the population — used by either pool method below</span>
+        </div>
 
-          <div class="field">
-            <label for="topEpsilon">Top N% epsilon <span class="val" id="topEpsilonVal">0.10</span></label>
-            <input type="range" id="topEpsilon" min="0" max="1" step="0.05" value="0.1">
-            <span class="hint">Per pool slot: probability ε it's ANY random individual instead of the next-best rank. 0 = strict cutoff</span>
-          </div>
+        <div class="field">
+          <label for="poolMethod">Pool method</label>
+          <select id="poolMethod">
+            <option value="topn" selected>Top N%</option>
+            <option value="softmax">Softmax</option>
+          </select>
+          <span class="hint" id="poolHint">Each pool slot: probability ε it's ANY random individual instead of the next-best rank. 0 = strict cutoff</span>
+        </div>
+
+        <div class="field" id="topEpsilonField">
+          <label for="topEpsilon">Pool epsilon <span class="val" id="topEpsilonVal">0.10</span></label>
+          <input type="range" id="topEpsilon" min="0" max="1" step="0.05" value="0.1">
+        </div>
+
+        <div class="field" id="topTemperatureField" hidden>
+          <label for="topTemperature">Pool temperature <span class="val" id="topTemperatureVal">10</span></label>
+          <input type="range" id="topTemperature" min="1" max="50" step="1" value="10">
+          <span class="hint">Pool slots drawn ∝ exp(fitness / T) over the whole population. Low T = near-strict top ranks, high T = near-uniform</span>
         </div>
 
         <div class="field">
           <label for="crossoverMethod">Crossover method</label>
           <select id="crossoverMethod">
-            <option value="rows" selected>Alternate rows</option>
-            <option value="cols">Alternate columns</option>
+            <option value="rows" selected>Rows (fewer conflicts)</option>
+            <option value="cols">Columns (fewer conflicts)</option>
             <option value="both">Both (mixed)</option>
           </select>
-          <span class="hint" id="crossoverHint">Even rows from Parent A, odd rows from Parent B</span>
+          <span class="hint" id="crossoverHint">Each row independently keeps whichever parent has fewer conflicts there</span>
         </div>
 
         <div class="field">
@@ -63,21 +75,21 @@
           <select id="selectionMethod">
             <option value="epsilon" selected>Epsilon-greedy</option>
             <option value="interleave">Interleave</option>
-            <option value="softmax">Softmax (temperature)</option>
+            <option value="softmax">Softmax</option>
           </select>
-          <span class="hint" id="selectionHint">With probability ε pick any parent from the pool; otherwise fitness-proportional within the pool</span>
+          <span class="hint" id="selectionHint">With probability ε pick any parent from the pool at random; otherwise (greedy) take the single fittest one</span>
         </div>
 
         <div class="field" id="selectionEpsilonField">
           <label for="selectionEpsilon">Selection epsilon <span class="val" id="selectionEpsilonVal">0.10</span></label>
           <input type="range" id="selectionEpsilon" min="0" max="1" step="0.05" value="0.1">
-          <span class="hint">A different ε from Top N%'s — this one governs picking a parent from the already-built pool</span>
+          <span class="hint">A different ε from the pool's — this one governs picking a parent from the already-built pool</span>
         </div>
 
-        <div class="field" id="temperatureField" hidden>
-          <label for="temperature">Temperature <span class="val" id="temperatureVal">10</span></label>
-          <input type="range" id="temperature" min="1" max="50" step="1" value="10">
-          <span class="hint">P(parent) ∝ exp(fitness / T) over the WHOLE population — no Top N% pool. Low T = greedy, high T = near-uniform</span>
+        <div class="field" id="selectionTemperatureField" hidden>
+          <label for="selectionTemperature">Selection temperature <span class="val" id="selectionTemperatureVal">10</span></label>
+          <input type="range" id="selectionTemperature" min="1" max="50" step="1" value="10">
+          <span class="hint">A different T from the pool's — this one governs picking a parent from the already-built pool, ∝ exp(fitness / T)</span>
         </div>
 
         <div class="field">
@@ -185,21 +197,26 @@
 
   const els = {
     popSize: document.getElementById("popSize"),
-    topNSection: document.getElementById("topNSection"),
     topNPercent: document.getElementById("topNPercent"),
     topNPercentVal: document.getElementById("topNPercentVal"),
+    poolMethod: document.getElementById("poolMethod"),
+    poolHint: document.getElementById("poolHint"),
     crossoverMethod: document.getElementById("crossoverMethod"),
     crossoverHint: document.getElementById("crossoverHint"),
     selectionMethod: document.getElementById("selectionMethod"),
     selectionHint: document.getElementById("selectionHint"),
+    topEpsilonField: document.getElementById("topEpsilonField"),
     topEpsilon: document.getElementById("topEpsilon"),
     topEpsilonVal: document.getElementById("topEpsilonVal"),
+    topTemperatureField: document.getElementById("topTemperatureField"),
+    topTemperature: document.getElementById("topTemperature"),
+    topTemperatureVal: document.getElementById("topTemperatureVal"),
     selectionEpsilonField: document.getElementById("selectionEpsilonField"),
     selectionEpsilon: document.getElementById("selectionEpsilon"),
     selectionEpsilonVal: document.getElementById("selectionEpsilonVal"),
-    temperatureField: document.getElementById("temperatureField"),
-    temperature: document.getElementById("temperature"),
-    temperatureVal: document.getElementById("temperatureVal"),
+    selectionTemperatureField: document.getElementById("selectionTemperatureField"),
+    selectionTemperature: document.getElementById("selectionTemperature"),
+    selectionTemperatureVal: document.getElementById("selectionTemperatureVal"),
     mutationRate: document.getElementById("mutationRate"),
     mutationRateVal: document.getElementById("mutationRateVal"),
     genCount: document.getElementById("genCount"),
@@ -231,11 +248,13 @@
   function params() {
     return {
       topNPercent: Number(els.topNPercent.value),
+      poolMethod: els.poolMethod.value,
       crossoverMethod: els.crossoverMethod.value,
       selectionMethod: els.selectionMethod.value,
       topEpsilon: Number(els.topEpsilon.value),
+      topTemperature: Number(els.topTemperature.value),
       selectionEpsilon: Number(els.selectionEpsilon.value),
-      temperature: Number(els.temperature.value),
+      selectionTemperature: Number(els.selectionTemperature.value),
       mutationRate: Number(els.mutationRate.value),
     };
   }
@@ -443,27 +462,33 @@
   }
 
   // ---- crossover & mutation explainer ----
-  function crossoverChildOpts(resolvedMethod) {
-    if (resolvedMethod === "cols") return { colClassFn: (c) => (c % 2 === 0 ? "colA" : "colB") };
-    return { rowClassFn: (r) => (r % 2 === 0 ? "rowA" : "rowB") };
+  // Colors the child by the REAL per-row/col winner (from ga.crossover's
+  // source map) — not a parity guess. Each row/col independently went to
+  // whichever parent had fewer conflicts there.
+  function crossoverChildOptsFromSource(resolvedMethod, source) {
+    if (resolvedMethod === "cols") return { colClassFn: (c) => (source[c] === "A" ? "colA" : "colB") };
+    return { rowClassFn: (r) => (source[r] === "A" ? "rowA" : "rowB") };
   }
-  function crossoverDescription(resolvedMethod, wasRandom) {
-    const picked = wasRandom ? ` — this child rolled <b>${resolvedMethod === "cols" ? "columns" : "rows"}</b>` : "";
-    if (resolvedMethod === "cols") return `even columns inherited from Parent A, odd columns from Parent B${picked}`;
-    return `even rows inherited from Parent A, odd rows from Parent B${picked}`;
+  function crossoverDescription(resolvedMethod, source, wasRandom) {
+    const axisWord = resolvedMethod === "cols" ? "columns" : "rows";
+    const aCount = source.filter((s) => s === "A").length;
+    const bCount = source.length - aCount;
+    const picked = wasRandom ? ` — this child rolled <b>${axisWord}</b>` : "";
+    return `each ${axisWord.slice(0, -1)} kept whichever parent had fewer conflicts there — <b>${aCount}</b> from Parent A, <b>${bCount}</b> from Parent B${picked}`;
   }
 
   async function showExample() {
     const p = params();
-    const pool = p.selectionMethod === "softmax"
-      ? state.population
-      : ga.buildPool(state.population, Math.max(2, Math.round(state.population.length * p.topNPercent / 100)), p.topEpsilon);
+    const poolSize = Math.max(2, Math.round(state.population.length * p.topNPercent / 100));
+    const pool = p.poolMethod === "softmax"
+      ? ga.buildSoftmaxPool(state.population, poolSize, p.topTemperature)
+      : ga.buildPool(state.population, poolSize, p.topEpsilon);
     const cursor = { i: Math.floor(Math.random() * pool.length) };
-    const pa = ga.selectParent(pool, p.selectionMethod, p.selectionEpsilon, p.temperature, cursor);
-    let pb = ga.selectParent(pool, p.selectionMethod, p.selectionEpsilon, p.temperature, cursor);
+    const pa = ga.selectParent(pool, p.selectionMethod, p.selectionEpsilon, p.selectionTemperature, cursor);
+    let pb = ga.selectParent(pool, p.selectionMethod, p.selectionEpsilon, p.selectionTemperature, cursor);
     if (pb === pa && pool.length > 1) pb = pool[(pool.indexOf(pa) + 1) % pool.length];
 
-    const whoText = p.selectionMethod === "softmax" ? "softmax-sampled, whole population" : "from the top-N% pool";
+    const whoText = p.poolMethod === "softmax" ? "softmax-drawn pool" : "top-N% pool";
     els.exWhoA.textContent = whoText;
     els.exWhoB.textContent = whoText;
 
@@ -471,11 +496,10 @@
     renderSudoku(els.exParentB, pb.grid, { rowClassFn: () => "rowB" });
 
     const resolvedMethod = ga.resolveCrossoverMethod(p.crossoverMethod);
-    const childOpts = crossoverChildOpts(resolvedMethod);
-
-    const crossedGrid = ga.crossover(pa.grid, pb.grid, resolvedMethod);
+    const { child: crossedGrid, source } = ga.crossover(pa.grid, pb.grid, resolvedMethod);
+    const childOpts = crossoverChildOptsFromSource(resolvedMethod, source);
     renderSudoku(els.exChild, crossedGrid, childOpts);
-    els.exStatus.innerHTML = `<b>Crossover</b> — ${crossoverDescription(resolvedMethod, p.crossoverMethod === "both")}.`;
+    els.exStatus.innerHTML = `<b>Crossover</b> — ${crossoverDescription(resolvedMethod, source, p.crossoverMethod === "both")}.`;
 
     await sleep(1300);
 
@@ -489,21 +513,31 @@
 
   // ---- wiring ----
   const CROSSOVER_HINTS = {
-    rows: "Even rows from Parent A, odd rows from Parent B",
-    cols: "Even columns from Parent A, odd columns from Parent B",
-    both: "Each child randomly gets alternate-rows or alternate-columns crossover",
+    rows: "Each row independently keeps whichever parent has fewer conflicts there",
+    cols: "Each column independently keeps whichever parent has fewer conflicts there",
+    both: "Each child randomly rolls rows-or-columns, then applies the same fewer-conflicts rule on that axis",
+  };
+  const POOL_HINTS = {
+    topn: "Each pool slot: probability ε it's ANY random individual instead of the next-best rank. 0 = strict cutoff",
+    softmax: "Pool slots drawn ∝ exp(fitness / T) over the whole population, with replacement",
   };
   const SELECTION_HINTS = {
-    epsilon: "With probability ε pick any parent from the pool; otherwise fitness-proportional within the pool",
+    epsilon: "With probability ε pick any parent from the pool at random; otherwise (greedy) take the single fittest one",
     interleave: "Cycles through the pool in rank order, giving every finalist an equal turn",
-    softmax: "P(parent) ∝ exp(fitness / T), sampled over the whole population — Top N% is ignored",
+    softmax: "P(parent) ∝ exp(fitness / T), sampled within the pool",
   };
+
+  function onPoolMethodChange() {
+    const method = els.poolMethod.value;
+    els.topEpsilonField.hidden = method !== "topn";
+    els.topTemperatureField.hidden = method !== "softmax";
+    els.poolHint.textContent = POOL_HINTS[method];
+  }
 
   function onSelectionMethodChange() {
     const method = els.selectionMethod.value;
     els.selectionEpsilonField.hidden = method !== "epsilon";
-    els.temperatureField.hidden = method !== "softmax";
-    els.topNSection.hidden = method === "softmax";
+    els.selectionTemperatureField.hidden = method !== "softmax";
     els.selectionHint.textContent = SELECTION_HINTS[method];
   }
 
@@ -511,14 +545,18 @@
     els.topNPercentVal.textContent = els.topNPercent.value + "%";
     renderStats();
   });
+  els.poolMethod.addEventListener("change", onPoolMethodChange);
   els.topEpsilon.addEventListener("input", () => {
     els.topEpsilonVal.textContent = Number(els.topEpsilon.value).toFixed(2);
+  });
+  els.topTemperature.addEventListener("input", () => {
+    els.topTemperatureVal.textContent = els.topTemperature.value;
   });
   els.selectionEpsilon.addEventListener("input", () => {
     els.selectionEpsilonVal.textContent = Number(els.selectionEpsilon.value).toFixed(2);
   });
-  els.temperature.addEventListener("input", () => {
-    els.temperatureVal.textContent = els.temperature.value;
+  els.selectionTemperature.addEventListener("input", () => {
+    els.selectionTemperatureVal.textContent = els.selectionTemperature.value;
   });
   els.mutationRate.addEventListener("input", () => {
     els.mutationRateVal.textContent = Number(els.mutationRate.value).toFixed(2);
@@ -531,6 +569,7 @@
   els.btnReset.addEventListener("click", resetPopulation);
   els.btnShowExample.addEventListener("click", showExample);
 
+  onPoolMethodChange();
   onSelectionMethodChange();
   resetPopulation();
   attachHover();
