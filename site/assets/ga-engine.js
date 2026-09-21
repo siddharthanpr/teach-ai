@@ -253,8 +253,13 @@
 
     // Random injection: replace a share of each new generation with brand-new
     // random individuals instead of bred children — a cheap diversity boost
-    // against premature convergence.
-    const injectCount = Math.min(targetSize - 1, Math.round((targetSize * (params.injectionPercent || 0)) / 100));
+    // against premature convergence. Only fires every injectionInterval
+    // generations (default 1 = every generation), not continuously.
+    const newGenNumber = state.generation + 1;
+    const interval = Math.max(1, params.injectionInterval || 1);
+    const injectCount = newGenNumber % interval === 0
+      ? Math.min(targetSize - 1, Math.round((targetSize * (params.injectionPercent || 0)) / 100))
+      : 0;
     for (let i = 0; i < injectCount; i++) next.push(makeIndividual(randomIndividual()));
 
     while (next.length < targetSize) {

@@ -101,7 +101,13 @@
         <div class="field">
           <label for="injectionPercent">Random injection <span class="val" id="injectionPercentVal">5%</span></label>
           <input type="range" id="injectionPercent" min="0" max="50" step="5" value="5">
-          <span class="hint">Share of each new generation replaced with brand-new random individuals, instead of bred children</span>
+          <span class="hint">Share of that generation's population replaced with brand-new random individuals, instead of bred children</span>
+        </div>
+
+        <div class="field">
+          <label for="injectionInterval">Injection every <span class="val" id="injectionIntervalVal">1</span> gen</label>
+          <input type="number" id="injectionInterval" min="1" value="1">
+          <span class="hint">1 = every generation. Higher = injection only fires on generations that are multiples of this</span>
         </div>
 
         <div class="field">
@@ -244,6 +250,8 @@
     mutationRateVal: document.getElementById("mutationRateVal"),
     injectionPercent: document.getElementById("injectionPercent"),
     injectionPercentVal: document.getElementById("injectionPercentVal"),
+    injectionInterval: document.getElementById("injectionInterval"),
+    injectionIntervalVal: document.getElementById("injectionIntervalVal"),
     genCount: document.getElementById("genCount"),
     btnSimulate: document.getElementById("btnSimulate"),
     btnReset: document.getElementById("btnReset"),
@@ -290,6 +298,7 @@
       selectionTemperature: Number(els.selectionTemperature.value),
       mutationRate: Number(els.mutationRate.value),
       injectionPercent: Number(els.injectionPercent.value),
+      injectionInterval: Math.max(1, Math.floor(Number(els.injectionInterval.value)) || 1),
     };
   }
 
@@ -638,6 +647,9 @@
   els.injectionPercent.addEventListener("input", () => {
     els.injectionPercentVal.textContent = els.injectionPercent.value + "%";
   });
+  els.injectionInterval.addEventListener("input", () => {
+    els.injectionIntervalVal.textContent = els.injectionInterval.value;
+  });
   els.crossoverMethod.addEventListener("change", () => {
     els.crossoverHint.textContent = CROSSOVER_HINTS[els.crossoverMethod.value];
   });
@@ -651,7 +663,7 @@
   const SETTINGS_FIELDS = [
     "popSize", "topNPercent", "poolMethod", "topEpsilon", "topTemperature",
     "crossoverMethod", "selectionMethod", "selectionEpsilon", "selectionTemperature",
-    "mutationRate", "injectionPercent", "genCount",
+    "mutationRate", "injectionPercent", "injectionInterval", "genCount",
   ];
 
   function collectSettings() {
@@ -671,6 +683,7 @@
     els.selectionTemperatureVal.textContent = els.selectionTemperature.value;
     els.mutationRateVal.textContent = Number(els.mutationRate.value).toFixed(2);
     els.injectionPercentVal.textContent = els.injectionPercent.value + "%";
+    els.injectionIntervalVal.textContent = els.injectionInterval.value;
     els.crossoverHint.textContent = CROSSOVER_HINTS[els.crossoverMethod.value];
     onPoolMethodChange();
     onSelectionMethodChange();
