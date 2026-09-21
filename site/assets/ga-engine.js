@@ -72,25 +72,22 @@
     return crossoverRows(a, b);
   }
 
-  // Each of the 9 cells in a row is rolled independently, so a single row
-  // can pick up more than one swap in a generation (locked clues always skip).
+  // One mutation roll per row: on a hit, swap two of that row's free cells.
   function mutate(grid, rate) {
     const g = grid.map((r) => r.slice());
-    const rows = new Set();
+    const rows = [];
     for (let r = 0; r < 9; r++) {
+      if (Math.random() >= rate) continue;
       const free = [];
       for (let c = 0; c < 9; c++) if (PUZZLE[r][c] === 0) free.push(c);
       if (free.length < 2) continue;
-      for (let c = 0; c < 9; c++) {
-        if (PUZZLE[r][c] !== 0) continue;
-        if (Math.random() >= rate) continue;
-        let other = free[Math.floor(Math.random() * free.length)];
-        if (other === c) other = free[(free.indexOf(c) + 1) % free.length];
-        [g[r][c], g[r][other]] = [g[r][other], g[r][c]];
-        rows.add(r);
-      }
+      const a = free[Math.floor(Math.random() * free.length)];
+      let b = free[Math.floor(Math.random() * free.length)];
+      if (b === a) b = free[(free.indexOf(a) + 1) % free.length];
+      [g[r][a], g[r][b]] = [g[r][b], g[r][a]];
+      rows.push(r);
     }
-    return { grid: g, rows: Array.from(rows) };
+    return { grid: g, rows };
   }
 
   function selectFitnessProportional(pool) {
