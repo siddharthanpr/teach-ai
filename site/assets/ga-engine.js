@@ -98,16 +98,19 @@
     return pool[pool.length - 1];
   }
 
-  // selectionMethod: "epsilon" (epsilon=0 reduces to pure fitness-proportional)
-  // or "interleave" (deterministic round-robin through the pool, rank order).
-  function selectParent(pool, method, epsilon, cursor) {
+  // selectionMethod: "epsilon" — with probability epsilon, explore by
+  // picking uniformly from the WHOLE population (not just the elite pool);
+  // otherwise exploit via fitness-proportional sampling within the top-N%
+  // pool. epsilon=0 reduces to pure fitness-proportional over the pool.
+  // "interleave": deterministic round-robin through the pool, rank order.
+  function selectParent(fullPopulation, pool, method, epsilon, cursor) {
     if (method === "interleave") {
       const ind = pool[cursor.i % pool.length];
       cursor.i += 1;
       return ind;
     }
     if (Math.random() < epsilon) {
-      return pool[Math.floor(Math.random() * pool.length)];
+      return fullPopulation[Math.floor(Math.random() * fullPopulation.length)];
     }
     return selectFitnessProportional(pool);
   }
@@ -139,8 +142,8 @@
     const cursor = { i: 0 };
     const next = [makeIndividual(state.population[0].grid.map((r) => r.slice()))];
     while (next.length < targetSize) {
-      const pa = selectParent(pool, params.selectionMethod, params.epsilon, cursor);
-      const pb = selectParent(pool, params.selectionMethod, params.epsilon, cursor);
+      const pa = selectParent(state.population, pool, params.selectionMethod, params.epsilon, cursor);
+      const pb = selectParent(state.population, pool, params.selectionMethod, params.epsilon, cursor);
       const crossed = crossover(pa.grid, pb.grid, resolveCrossoverMethod(params.crossoverMethod));
       const { grid } = mutate(crossed, params.mutationRate);
       next.push(makeIndividual(grid));

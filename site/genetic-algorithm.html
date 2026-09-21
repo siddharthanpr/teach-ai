@@ -56,7 +56,7 @@
             <option value="epsilon" selected>Epsilon-greedy</option>
             <option value="interleave">Interleave</option>
           </select>
-          <span class="hint" id="selectionHint">With probability ε pick a uniformly random parent from the pool; otherwise fitness-proportional</span>
+          <span class="hint" id="selectionHint">With probability ε pick a uniformly random parent from the whole population; otherwise fitness-proportional within the top N%</span>
         </div>
 
         <div class="field" id="epsilonField">
@@ -421,8 +421,8 @@
     const poolSize = Math.max(2, Math.round(state.population.length * p.topNPercent / 100));
     const pool = state.population.slice(0, poolSize);
     const cursor = { i: Math.floor(Math.random() * pool.length) };
-    const pa = ga.selectParent(pool, p.selectionMethod, p.epsilon, cursor);
-    let pb = ga.selectParent(pool, p.selectionMethod, p.epsilon, cursor);
+    const pa = ga.selectParent(state.population, pool, p.selectionMethod, p.epsilon, cursor);
+    let pb = ga.selectParent(state.population, pool, p.selectionMethod, p.epsilon, cursor);
     if (pb === pa && pool.length > 1) pb = pool[(pool.indexOf(pa) + 1) % pool.length];
 
     renderSudoku(els.exParentA, pa.grid, { rowClassFn: () => "rowA" });
@@ -452,7 +452,7 @@
     both: "Each child randomly gets alternate-rows or alternate-columns crossover",
   };
   const SELECTION_HINTS = {
-    epsilon: "With probability ε pick a uniformly random parent from the pool; otherwise fitness-proportional",
+    epsilon: "With probability ε pick a uniformly random parent from the whole population; otherwise fitness-proportional within the top N%",
     interleave: "Cycles through the top-N% pool in rank order, giving every finalist an equal turn",
   };
 
