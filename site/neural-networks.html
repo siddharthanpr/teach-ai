@@ -1,4 +1,4 @@
-<title>Neural Networks</title>
+<title>Fitting Curves</title>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Work+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
@@ -10,23 +10,493 @@
     <nav class="site-nav">
       <a href="index.html">Overview</a>
       <a href="genetic-algorithm.html">Genetic Algorithms</a>
-      <a href="neural-networks.html" class="active soon">Neural Networks</a>
+      <a href="neural-networks.html" class="active">Neural Networks</a>
     </nav>
   </header>
 
-  <main>
-    <div class="soon-hero">
-      <div class="eyebrow">Playground 02 — In progress</div>
-      <h1>A fully-connected network, fitting a curve in front of you.</h1>
-      <p>Pick an objective function — start with a parabola — generate noisy 2D samples from it, then watch a configurable neural net close the gap between its prediction and the data. Zoom in on the curve to see individual ReLU units bend into place, and watch dropout simplify the model in real time.</p>
+  <main class="stack">
+    <div>
+      <h1 style="font-size:26px;margin-bottom:6px;">Fitting a curve with a neural network</h1>
+      <p style="color:var(--ink-dim);font-size:13.5px;max-width:70ch;margin:0;">
+        Pick a function, generate noisy samples from it, and watch a small fully-connected network learn to predict it.
+        The diagram below shows a real forward pass — those are actual weights on the edges and activations at the nodes.
+      </p>
+    </div>
 
-      <ul class="feature-list">
-        <li><span class="n">01</span> Objective function picker (parabola, sine, step, custom) with adjustable parameters and Gaussian noise</li>
-        <li><span class="n">02</span> Side-by-side model comparison against the true distribution, tracked by live MSE</li>
-        <li><span class="n">03</span> Fully-connected network hyperparameters — depth, hidden width, learning rate, dropout rate</li>
-        <li><span class="n">04</span> Interactive zoom that reveals ReLU hinge points moving during training</li>
-        <li><span class="n">05</span> Dropout visualization showing the effective network simplify as units are silenced</li>
-      </ul>
+    <div class="ga-layout">
+      <!-- Sidebar -->
+      <div class="card">
+        <div class="card-title">Data &amp; network</div>
+
+        <div class="field">
+          <label for="objective">Objective function</label>
+          <select id="objective">
+            <option value="quadratic" selected>Quadratic</option>
+            <option value="cubic">Cubic</option>
+            <option value="polynomial">Polynomial (custom degree)</option>
+            <option value="sinusoid">Sinusoid</option>
+            <option value="log">Logarithmic</option>
+            <option value="complex">Complex nonlinear</option>
+          </select>
+          <span class="hint" id="objFormula">a·x² + b·x + c</span>
+        </div>
+
+        <div class="field">
+          <label for="objParams">Parameters (comma-separated)</label>
+          <input type="text" id="objParams" value="1, 0, -2">
+          <span class="hint">In order: a, b, c, … as shown in the formula above</span>
+        </div>
+
+        <div class="field">
+          <label for="numPoints">Data points <span class="val" id="numPointsVal">150</span></label>
+          <input type="range" id="numPoints" min="20" max="400" step="10" value="150">
+        </div>
+
+        <div class="field">
+          <label for="noiseStd">Noise σ <span class="val" id="noiseStdVal">0.40</span></label>
+          <input type="range" id="noiseStd" min="0" max="3" step="0.1" value="0.4">
+          <span class="hint">Gaussian noise added to each sample</span>
+        </div>
+
+        <div class="field">
+          <label for="hiddenLayers">Hidden layers</label>
+          <input type="text" id="hiddenLayers" value="6, 6">
+          <span class="hint">Comma-separated widths, e.g. "6, 6" = two hidden layers of 6 neurons. Each width clamped 1–8 so the diagram stays readable</span>
+        </div>
+
+        <div class="field">
+          <label for="learningRate">Learning rate <span class="val" id="learningRateVal">0.05</span></label>
+          <input type="range" id="learningRate" min="0.01" max="0.3" step="0.01" value="0.05">
+        </div>
+
+        <div class="field">
+          <label for="dropoutRate">Dropout rate <span class="val" id="dropoutRateVal">0.00</span></label>
+          <input type="range" id="dropoutRate" min="0" max="0.6" step="0.05" value="0">
+          <span class="hint">Fraction of hidden units randomly zeroed each training step</span>
+        </div>
+
+        <div class="field">
+          <label for="batchSize">Batch size</label>
+          <input type="number" id="batchSize" min="1" value="16">
+        </div>
+
+        <div class="field">
+          <label for="stepCount">Steps per train click</label>
+          <input type="number" id="stepCount" min="1" value="200">
+        </div>
+
+        <div class="btn-row">
+          <button class="btn-primary" id="btnTrain">▶ Train</button>
+          <button class="btn-secondary" id="btnReset">↻ Reset</button>
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat"><div class="k">Step</div><div class="v tabular" id="statStep">0</div></div>
+          <div class="stat"><div class="k">Batch MSE</div><div class="v tabular" id="statBatchMSE">–</div></div>
+          <div class="stat"><div class="k">Dataset MSE</div><div class="v tabular" id="statDatasetMSE">–</div></div>
+          <div class="stat"><div class="k">Best MSE</div><div class="v tabular" id="statBestMSE">–</div></div>
+        </div>
+      </div>
+
+      <!-- Main stage -->
+      <div class="stack">
+        <div class="card nn-card">
+          <div class="card-title">Network — live forward pass</div>
+          <div class="nn-legend">
+            <span class="item pos"><span class="line"></span>Positive weight</span>
+            <span class="item neg"><span class="line"></span>Negative weight</span>
+            <span class="item"><span class="swatch" style="background:var(--surface-2);"></span>Input</span>
+            <span class="item"><span class="swatch" style="background:var(--surface);"></span>Hidden (post-ReLU)</span>
+            <span class="item"><span class="swatch" style="background:var(--accent-soft);"></span>Output</span>
+          </div>
+          <svg id="nnSvg" class="nn-svg" viewBox="0 0 700 300"></svg>
+          <div class="grid-caption"><span id="nnSampleLabel">—</span></div>
+        </div>
+
+        <div class="stage-row" style="grid-template-columns: 1fr 1fr;">
+          <div class="card chart-card">
+            <div class="card-title">Fit vs. data</div>
+            <div class="chart-legend">
+              <span class="item"><span class="line" style="background:var(--ink-faint);opacity:.5;"></span>Data (noisy)</span>
+              <span class="item"><span class="line" style="background:var(--ink-faint);"></span>True function</span>
+              <span class="item best"><span class="line" style="background:var(--accent);"></span>Model prediction</span>
+            </div>
+            <div id="fitChartWrap" style="position:relative;">
+              <svg id="fitChartSvg" class="chart-svg" viewBox="0 0 640 280"></svg>
+              <div class="chart-tooltip" id="fitChartTooltip" hidden></div>
+            </div>
+          </div>
+
+          <div class="card chart-card">
+            <div class="card-title">Loss over training steps</div>
+            <div class="chart-legend">
+              <span class="item"><span class="line" style="background:var(--parentB);"></span>Batch MSE</span>
+            </div>
+            <div id="lossChartWrap" style="position:relative;">
+              <svg id="lossChartSvg" class="chart-svg" viewBox="0 0 640 280"></svg>
+              <div class="chart-tooltip" id="lossChartTooltip" hidden></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </main>
 </div>
+
+<script src="assets/nn-engine.js"></script>
+<script>
+(function () {
+  "use strict";
+  const nn = window.TeachAI.nn;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  const els = {
+    objective: document.getElementById("objective"),
+    objFormula: document.getElementById("objFormula"),
+    objParams: document.getElementById("objParams"),
+    numPoints: document.getElementById("numPoints"),
+    numPointsVal: document.getElementById("numPointsVal"),
+    noiseStd: document.getElementById("noiseStd"),
+    noiseStdVal: document.getElementById("noiseStdVal"),
+    hiddenLayers: document.getElementById("hiddenLayers"),
+    learningRate: document.getElementById("learningRate"),
+    learningRateVal: document.getElementById("learningRateVal"),
+    dropoutRate: document.getElementById("dropoutRate"),
+    dropoutRateVal: document.getElementById("dropoutRateVal"),
+    batchSize: document.getElementById("batchSize"),
+    stepCount: document.getElementById("stepCount"),
+    btnTrain: document.getElementById("btnTrain"),
+    btnReset: document.getElementById("btnReset"),
+    statStep: document.getElementById("statStep"),
+    statBatchMSE: document.getElementById("statBatchMSE"),
+    statDatasetMSE: document.getElementById("statDatasetMSE"),
+    statBestMSE: document.getElementById("statBestMSE"),
+    nnSvg: document.getElementById("nnSvg"),
+    nnSampleLabel: document.getElementById("nnSampleLabel"),
+    fitChartWrap: document.getElementById("fitChartWrap"),
+    fitChartSvg: document.getElementById("fitChartSvg"),
+    fitChartTooltip: document.getElementById("fitChartTooltip"),
+    lossChartWrap: document.getElementById("lossChartWrap"),
+    lossChartSvg: document.getElementById("lossChartSvg"),
+    lossChartTooltip: document.getElementById("lossChartTooltip"),
+  };
+
+  const state = {
+    data: { points: [], domain: [-4, 4], params: [] },
+    norm: { xScale: 1, yMean: 0, yStd: 1 },
+    net: null,
+    step: 0,
+    lastBatchMSE: 0,
+    bestMSE: Infinity,
+    lossHistory: [], // { step, mse }
+  };
+  let runToken = 0;
+
+  function params() {
+    return {
+      objective: els.objective.value,
+      objParams: els.objParams.value,
+      numPoints: Math.max(10, Math.floor(Number(els.numPoints.value)) || 150),
+      noiseStd: Math.max(0, Number(els.noiseStd.value)),
+      hiddenLayers: els.hiddenLayers.value,
+      learningRate: Number(els.learningRate.value),
+      dropoutRate: Number(els.dropoutRate.value),
+      batchSize: Math.max(1, Math.floor(Number(els.batchSize.value)) || 16),
+      stepCount: Math.max(1, Math.floor(Number(els.stepCount.value)) || 200),
+    };
+  }
+
+  function resetAll() {
+    runToken++;
+    const p = params();
+    const { points, domain, params: objParams } = nn.generateData(p.objective, p.objParams, p.numPoints, p.noiseStd);
+    state.data = { points, domain, params: objParams };
+    state.norm = nn.computeNormalization(points, domain);
+    const sizes = [1, ...nn.parseHiddenLayers(p.hiddenLayers), 1];
+    state.net = nn.createNetwork(sizes);
+    state.step = 0;
+    state.lastBatchMSE = 0;
+    state.bestMSE = Infinity;
+    state.lossHistory = [{ step: 0, mse: nn.datasetMSE(state.net, points, state.norm) }];
+    renderAll();
+    setControlsDisabled(false);
+  }
+
+  function renderAll() {
+    renderNetwork();
+    renderFitChart();
+    renderLossChart();
+    renderStats();
+  }
+
+  // ---- network diagram ----
+  const NN_W = 700, NN_H = 300;
+  const NN_PAD_X = 55, NN_PAD_Y = 34;
+
+  function renderNetwork() {
+    const net = state.net;
+    const sizes = net.sizes;
+    const numLayers = sizes.length;
+    const sample = state.data.points[Math.floor(Math.random() * state.data.points.length)];
+    const cache = nn.forward(net, sample.x / state.norm.xScale, { training: false });
+
+    const colX = (l) => NN_PAD_X + (l * (NN_W - 2 * NN_PAD_X)) / (numLayers - 1);
+    const rowY = (size, idx) => {
+      if (size === 1) return NN_H / 2;
+      const usable = NN_H - 2 * NN_PAD_Y;
+      return NN_PAD_Y + (idx * usable) / (size - 1);
+    };
+
+    let maxAbsW = 0;
+    for (const layer of net.layers) for (const row of layer.W) for (const w of row) maxAbsW = Math.max(maxAbsW, Math.abs(w));
+    maxAbsW = maxAbsW || 1;
+
+    let edgeCount = 0;
+    for (const layer of net.layers) edgeCount += layer.W.length * layer.W[0].length;
+    const showEdgeLabels = edgeCount <= 40;
+
+    let svg = "";
+    for (let l = 0; l < net.layers.length; l++) {
+      const { W } = net.layers[l];
+      const fromX = colX(l), toX = colX(l + 1);
+      const fromSize = sizes[l], toSize = sizes[l + 1];
+      for (let j = 0; j < toSize; j++) {
+        for (let i = 0; i < fromSize; i++) {
+          const w = W[j][i];
+          const fromY = rowY(fromSize, i), toY = rowY(toSize, j);
+          const color = w >= 0 ? "var(--accent)" : "var(--parentB)";
+          const strokeW = (0.6 + 2.6 * (Math.abs(w) / maxAbsW)).toFixed(2);
+          const opacity = (0.25 + 0.55 * (Math.abs(w) / maxAbsW)).toFixed(2);
+          svg += `<line x1="${fromX.toFixed(1)}" y1="${fromY.toFixed(1)}" x2="${toX.toFixed(1)}" y2="${toY.toFixed(1)}" class="nn-edge" stroke="${color}" stroke-width="${strokeW}" opacity="${opacity}" />`;
+          if (showEdgeLabels) {
+            const mx = (fromX + toX) / 2, my = (fromY + toY) / 2;
+            svg += `<text x="${mx.toFixed(1)}" y="${my.toFixed(1)}" class="nn-edge-label">${w.toFixed(2)}</text>`;
+          }
+        }
+      }
+    }
+
+    for (let l = 0; l < numLayers; l++) {
+      const size = sizes[l];
+      const x = colX(l);
+      const kind = l === 0 ? "input" : l === numLayers - 1 ? "output" : "hidden";
+      for (let i = 0; i < size; i++) {
+        const y = rowY(size, i);
+        let val;
+        if (l === 0) val = sample.x;
+        else if (l === numLayers - 1) val = cache.output * state.norm.yStd + state.norm.yMean;
+        else val = cache.activations[l][i];
+        svg += `<g class="nn-node ${kind}"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="16" /><text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="nn-node-value">${val.toFixed(2)}</text></g>`;
+      }
+      const labelText = l === 0 ? "Input (x)" : l === numLayers - 1 ? "Output (ŷ)" : `Hidden ${l}`;
+      svg += `<text x="${x.toFixed(1)}" y="${NN_H - 6}" class="nn-layer-label">${labelText}</text>`;
+    }
+
+    els.nnSvg.setAttribute("viewBox", `0 0 ${NN_W} ${NN_H}`);
+    els.nnSvg.innerHTML = svg;
+    els.nnSampleLabel.textContent = `Forward pass for a real data point — x = ${sample.x.toFixed(2)}, noisy target y = ${sample.y.toFixed(2)}${showEdgeLabels ? "" : " (edge labels hidden above 40 edges — color/thickness still show sign & magnitude)"}`;
+  }
+
+  // ---- fit chart ----
+  const CHART_W = 640, CHART_H = 280;
+  const PAD = { l: 44, r: 16, t: 16, b: 28 };
+  let fitScale = null;
+  let lossScale = null;
+
+  function niceTicks(min, max, count) {
+    const span = max - min || 1;
+    const step = span / count;
+    const ticks = [];
+    for (let i = 0; i <= count; i++) ticks.push(min + step * i);
+    return ticks;
+  }
+
+  function renderFitChart() {
+    const { points, domain } = state.data;
+    const [xMin, xMax] = domain;
+    const ys = points.map((p) => p.y);
+    let yMin = Math.min(...ys), yMax = Math.max(...ys);
+    const yPad = (yMax - yMin) * 0.12 || 1;
+    yMin -= yPad; yMax += yPad;
+
+    const innerW = CHART_W - PAD.l - PAD.r;
+    const innerH = CHART_H - PAD.t - PAD.b;
+    const x = (v) => PAD.l + ((v - xMin) / (xMax - xMin)) * innerW;
+    const y = (v) => PAD.t + innerH - ((v - yMin) / (yMax - yMin)) * innerH;
+    fitScale = { x, y, xMin, xMax, yMin, yMax };
+
+    const yTicks = niceTicks(yMin, yMax, 5);
+    const gridSvg = yTicks
+      .map((v) => `<line x1="${PAD.l}" y1="${y(v).toFixed(1)}" x2="${CHART_W - PAD.r}" y2="${y(v).toFixed(1)}" class="grid-line" />
+        <text x="${PAD.l - 8}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end" class="axis-label">${v.toFixed(1)}</text>`)
+      .join("");
+
+    const xTicksArr = niceTicks(xMin, xMax, 6);
+    const xTicks = xTicksArr
+      .map((v) => `<text x="${x(v).toFixed(1)}" y="${CHART_H - PAD.b + 16}" text-anchor="middle" class="axis-label">${v.toFixed(1)}</text>`)
+      .join("");
+
+    const truePts = nn.trueCurve(els.objective.value, els.objParams.value, 120);
+    const truePath = truePts.map((p, i) => `${i === 0 ? "M" : "L"}${x(p.x).toFixed(1)},${y(p.y).toFixed(1)}`).join(" ");
+
+    const predPts = [];
+    for (let i = 0; i <= 120; i++) {
+      const px = xMin + ((xMax - xMin) * i) / 120;
+      predPts.push({ x: px, y: nn.predict(state.net, px, state.norm) });
+    }
+    const predPath = predPts.map((p, i) => `${i === 0 ? "M" : "L"}${x(p.x).toFixed(1)},${y(Math.max(yMin, Math.min(yMax, p.y))).toFixed(1)}`).join(" ");
+
+    const dots = points.map((p) => `<circle cx="${x(p.x).toFixed(1)}" cy="${y(p.y).toFixed(1)}" r="2.5" class="dot-data" />`).join("");
+
+    els.fitChartSvg.setAttribute("viewBox", `0 0 ${CHART_W} ${CHART_H}`);
+    els.fitChartSvg.innerHTML = `
+      ${gridSvg}
+      ${dots}
+      <path d="${truePath}" class="line-true" />
+      <path d="${predPath}" class="line-pred" />
+      ${xTicks}
+      <text x="${(PAD.l + CHART_W - PAD.r) / 2}" y="${CHART_H - 2}" text-anchor="middle" class="axis-label">x</text>
+      <g id="fitHoverLayer"></g>
+    `;
+  }
+
+  function renderLossChart() {
+    const history = state.lossHistory;
+    const maxStep = history[history.length - 1].step || 1;
+    const maxMSE = Math.max(...history.map((h) => h.mse), 1e-6);
+
+    const innerW = CHART_W - PAD.l - PAD.r;
+    const innerH = CHART_H - PAD.t - PAD.b;
+    const x = (s) => PAD.l + (maxStep === 0 ? 0 : (s / maxStep) * innerW);
+    const y = (v) => PAD.t + innerH - (Math.max(0, Math.min(maxMSE, v)) / maxMSE) * innerH;
+    lossScale = { x, y, history, maxStep, maxMSE };
+
+    const yTicks = niceTicks(0, maxMSE, 5);
+    const gridSvg = yTicks
+      .map((v) => `<line x1="${PAD.l}" y1="${y(v).toFixed(1)}" x2="${CHART_W - PAD.r}" y2="${y(v).toFixed(1)}" class="grid-line" />
+        <text x="${PAD.l - 8}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end" class="axis-label">${v.toFixed(2)}</text>`)
+      .join("");
+
+    const xTickEvery = Math.max(1, Math.ceil(maxStep / 6));
+    let xTicks = "";
+    for (let s = 0; s <= maxStep; s += xTickEvery) {
+      xTicks += `<text x="${x(s).toFixed(1)}" y="${CHART_H - PAD.b + 16}" text-anchor="middle" class="axis-label">${s}</text>`;
+    }
+
+    const path = history.map((h, i) => `${i === 0 ? "M" : "L"}${x(h.step).toFixed(1)},${y(h.mse).toFixed(1)}`).join(" ");
+
+    els.lossChartSvg.setAttribute("viewBox", `0 0 ${CHART_W} ${CHART_H}`);
+    els.lossChartSvg.innerHTML = `
+      ${gridSvg}
+      <path d="${path}" class="line-loss" />
+      ${xTicks}
+      <text x="${(PAD.l + CHART_W - PAD.r) / 2}" y="${CHART_H - 2}" text-anchor="middle" class="axis-label">training step</text>
+      <g id="lossHoverLayer"></g>
+    `;
+  }
+
+  function attachChartHover(svgEl, tooltipEl, wrapEl, getScale, buildContent) {
+    function handleMove(evt) {
+      const scale = getScale();
+      if (!scale) return;
+      const rect = svgEl.getBoundingClientRect();
+      const vb = svgEl.viewBox.baseVal;
+      const zoom = vb.width / rect.width;
+      const px = (evt.clientX - rect.left) * zoom;
+      const content = buildContent(px, scale);
+      if (!content) { tooltipEl.hidden = true; return; }
+      const wrapRect = wrapEl.getBoundingClientRect();
+      tooltipEl.style.left = `${rect.left - wrapRect.left + content.hx / zoom}px`;
+      tooltipEl.style.top = `${rect.top - wrapRect.top + content.hy / zoom}px`;
+      tooltipEl.innerHTML = content.html;
+      tooltipEl.hidden = false;
+    }
+    function handleLeave() { tooltipEl.hidden = true; }
+    svgEl.addEventListener("mousemove", handleMove);
+    svgEl.addEventListener("mouseleave", handleLeave);
+  }
+
+  attachChartHover(els.fitChartSvg, els.fitChartTooltip, els.fitChartWrap, () => fitScale, (px, scale) => {
+    const xVal = scale.xMin + ((px - PAD.l) / (CHART_W - PAD.l - PAD.r)) * (scale.xMax - scale.xMin);
+    if (xVal < scale.xMin || xVal > scale.xMax) return null;
+    const predY = nn.predict(state.net, xVal, state.norm);
+    const hx = scale.x(xVal), hy = scale.y(predY);
+    return {
+      hx, hy,
+      html: `<div><b>x = ${xVal.toFixed(2)}</b></div><div class="row"><span class="dot" style="background:var(--accent)"></span>predicted ${predY.toFixed(2)}</div>`,
+    };
+  });
+
+  attachChartHover(els.lossChartSvg, els.lossChartTooltip, els.lossChartWrap, () => lossScale, (px, scale) => {
+    const stepVal = Math.round(scale.maxStep === 0 ? 0 : ((px - PAD.l) / (CHART_W - PAD.l - PAD.r)) * scale.maxStep);
+    if (stepVal < 0 || stepVal > scale.maxStep) return null;
+    let nearest = scale.history[0];
+    for (const h of scale.history) if (Math.abs(h.step - stepVal) < Math.abs(nearest.step - stepVal)) nearest = h;
+    const hx = scale.x(nearest.step), hy = scale.y(nearest.mse);
+    return {
+      hx, hy,
+      html: `<div><b>step ${nearest.step}</b></div><div class="row"><span class="dot" style="background:var(--parentB)"></span>MSE ${nearest.mse.toFixed(4)}</div>`,
+    };
+  });
+
+  function renderStats() {
+    const datasetMSE = nn.datasetMSE(state.net, state.data.points, state.norm);
+    state.bestMSE = Math.min(state.bestMSE, datasetMSE);
+    els.statStep.textContent = state.step;
+    els.statBatchMSE.textContent = state.lastBatchMSE.toFixed(4);
+    els.statDatasetMSE.textContent = datasetMSE.toFixed(4);
+    els.statBestMSE.textContent = state.bestMSE.toFixed(4);
+  }
+
+  // ---- train ----
+  function setControlsDisabled(disabled) {
+    els.btnTrain.disabled = disabled;
+  }
+
+  async function train() {
+    const myToken = ++runToken;
+    const p = params();
+    setControlsDisabled(true);
+    const renderEvery = Math.max(1, Math.ceil(p.stepCount / 200));
+    const delay = p.stepCount > 200 ? 0 : p.stepCount > 40 ? 10 : 40;
+
+    for (let i = 0; i < p.stepCount; i++) {
+      if (myToken !== runToken) return;
+      const result = nn.trainStep(state.net, state.data.points, state.norm, {
+        lr: p.learningRate,
+        dropoutRate: p.dropoutRate,
+        batchSize: p.batchSize,
+      });
+      state.step++;
+      state.lastBatchMSE = result.mse;
+      if (i % renderEvery === 0 || i === p.stepCount - 1) {
+        state.lossHistory.push({ step: state.step, mse: result.mse });
+        renderAll();
+        await sleep(delay);
+      }
+    }
+    if (myToken === runToken) setControlsDisabled(false);
+  }
+
+  // ---- wiring ----
+  function updateObjectiveHint() {
+    const obj = nn.OBJECTIVES[els.objective.value];
+    els.objFormula.textContent = obj.formula;
+  }
+
+  els.objective.addEventListener("change", () => {
+    const obj = nn.OBJECTIVES[els.objective.value];
+    els.objParams.value = obj.defaultParams;
+    updateObjectiveHint();
+  });
+  els.numPoints.addEventListener("input", () => { els.numPointsVal.textContent = els.numPoints.value; });
+  els.noiseStd.addEventListener("input", () => { els.noiseStdVal.textContent = Number(els.noiseStd.value).toFixed(2); });
+  els.learningRate.addEventListener("input", () => { els.learningRateVal.textContent = Number(els.learningRate.value).toFixed(2); });
+  els.dropoutRate.addEventListener("input", () => { els.dropoutRateVal.textContent = Number(els.dropoutRate.value).toFixed(2); });
+  els.btnTrain.addEventListener("click", train);
+  els.btnReset.addEventListener("click", resetAll);
+
+  updateObjectiveHint();
+  resetAll();
+})();
+</script>

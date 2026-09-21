@@ -450,6 +450,37 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .chart-tooltip .row { display: flex; align-items: center; gap: 6px; }
 .chart-tooltip .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
+/* ---------- neural network graphic ---------- */
+.nn-card { position: relative; }
+.nn-svg { width: 100%; height: auto; display: block; overflow: visible; }
+.nn-edge { stroke-linecap: round; }
+.nn-edge-label {
+  font-family: var(--font-mono); font-size: 8px; fill: var(--ink-faint);
+  paint-order: stroke; stroke: var(--surface); stroke-width: 3px;
+}
+.nn-node circle { stroke: var(--ink); stroke-width: 1.5; }
+.nn-node.input circle { fill: var(--surface-2); }
+.nn-node.hidden circle { fill: var(--surface); }
+.nn-node.output circle { fill: var(--accent-soft); stroke: var(--accent); }
+.nn-node-value {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700; fill: var(--ink);
+  text-anchor: middle; dominant-baseline: middle;
+}
+.nn-layer-label { font-family: var(--font-body); font-size: 11px; font-weight: 600; fill: var(--ink-faint); text-anchor: middle; }
+.nn-sample-label { font-family: var(--font-mono); font-size: 11px; fill: var(--ink-dim); }
+
+.nn-legend { display: flex; flex-wrap: wrap; gap: 18px; margin-bottom: 14px; font-size: 12.5px; color: var(--ink-dim); }
+.nn-legend .item { display: flex; align-items: center; gap: 7px; }
+.nn-legend .line { width: 18px; height: 3px; border-radius: 2px; }
+.nn-legend .pos .line { background: var(--accent); }
+.nn-legend .neg .line { background: var(--parentB); }
+.nn-legend .swatch { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--ink); }
+
+.chart-svg .dot-data { fill: var(--ink-faint); opacity: 0.4; }
+.chart-svg .line-true { fill: none; stroke: var(--ink); stroke-width: 2; stroke-dasharray: 5 4; opacity: 0.75; }
+.chart-svg .line-pred { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; }
+.chart-svg .line-loss { fill: none; stroke: var(--parentB); stroke-width: 2; stroke-linecap: round; }
+
 /* ---------- explainer section ---------- */
 .explainer-grids {
   display: grid;
