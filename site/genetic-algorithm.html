@@ -114,10 +114,7 @@
           <button class="btn-secondary" id="btnReset">↻ Reset</button>
         </div>
 
-        <div class="btn-row">
-          <button class="btn-secondary" id="btnSaveSettings">💾 Save settings</button>
-        </div>
-        <div class="hint" id="settingsStatus" style="text-align:center;min-height:14px;"></div>
+        <div class="hint" id="settingsStatus" style="text-align:center;min-height:14px;">Settings autosave as you go</div>
 
         <div class="stat-grid">
           <div class="stat"><div class="k">Generation</div><div class="v tabular" id="statGeneration">0</div></div>
@@ -235,7 +232,6 @@
     genCount: document.getElementById("genCount"),
     btnSimulate: document.getElementById("btnSimulate"),
     btnReset: document.getElementById("btnReset"),
-    btnSaveSettings: document.getElementById("btnSaveSettings"),
     settingsStatus: document.getElementById("settingsStatus"),
     statGeneration: document.getElementById("statGeneration"),
     statBest: document.getElementById("statBest"),
@@ -504,7 +500,11 @@
     let pb = ga.selectParent(pool, p.selectionMethod, p.selectionEpsilon, p.selectionTemperature, cursor);
     if (pb === pa && pool.length > 1) pb = pool[(pool.indexOf(pa) + 1) % pool.length];
 
-    const whoText = p.poolMethod === "softmax" ? "softmax-drawn pool" : "top-N% pool";
+    // Spell out BOTH stages that actually ran, so it's never ambiguous
+    // which method produced these two parents.
+    const poolLabel = p.poolMethod === "softmax" ? "softmax pool" : "top-N% pool";
+    const selectionLabel = { epsilon: "epsilon-greedy pick", interleave: "interleave pick", softmax: "softmax pick" }[p.selectionMethod];
+    const whoText = `${poolLabel} → ${selectionLabel}`;
     els.exWhoA.textContent = whoText;
     els.exWhoB.textContent = whoText;
 
@@ -618,17 +618,18 @@
     onSelectionMethodChange();
   }
 
+  const SETTINGS_DEFAULT_TEXT = "Settings autosave as you go";
   let settingsStatusTimer = null;
   function flashSettingsStatus(text) {
     els.settingsStatus.textContent = text;
     clearTimeout(settingsStatusTimer);
-    settingsStatusTimer = setTimeout(() => { els.settingsStatus.textContent = ""; }, 3000);
+    settingsStatusTimer = setTimeout(() => { els.settingsStatus.textContent = SETTINGS_DEFAULT_TEXT; }, 2000);
   }
 
-  function saveSettings() {
+  function saveSettingsNow() {
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(collectSettings()));
-      flashSettingsStatus("Saved ✓ — reopening this page will restore it");
+      flashSettingsStatus("Autosaved ✓");
     } catch (e) {
       flashSettingsStatus("Couldn't save (browser storage unavailable)");
     }
@@ -645,7 +646,17 @@
     }
   }
 
-  els.btnSaveSettings.addEventListener("click", saveSettings);
+  // Autosave always: every hyperparameter field writes to localStorage on
+  // its own change, debounced so a dragged slider doesn't spam writes.
+  let autosaveTimer = null;
+  function autosave() {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(saveSettingsNow, 400);
+  }
+  for (const key of SETTINGS_FIELDS) {
+    const el = els[key];
+    el.addEventListener(el.tagName === "SELECT" ? "change" : "input", autosave);
+  }
 
   const restoredSettings = loadSettings();
   if (!restoredSettings) {
