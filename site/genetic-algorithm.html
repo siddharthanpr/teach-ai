@@ -254,6 +254,10 @@
   };
 
   const state = { population: [], generation: 0, history: [] };
+  // Bumped by resetPopulation() to invalidate any in-flight simulate()/
+  // showExample() loop, so Reset can interrupt a running simulation
+  // instead of racing it.
+  let runToken = 0;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   function params() {
@@ -307,6 +311,7 @@
   }
 
   function resetPopulation() {
+    runToken++; // invalidate any in-flight simulate()/showExample() loop
     const size = Math.min(400, Math.max(10, Number(els.popSize.value) || 100));
     els.popSize.value = size;
     state.population = ga.initPopulation(size);
@@ -314,6 +319,7 @@
     const s = ga.statsFor(state.population, params().topNPercent);
     state.history = [{ gen: 0, avg: s.avg, topN: s.topN, topNStd: s.topNStd, best: s.best }];
     renderAll();
+    setControlsDisabled(false); // re-enable Simulate/Show example if we just interrupted a run
   }
 
   function renderAll() {
@@ -453,11 +459,13 @@
   // ---- simulate ----
   function setControlsDisabled(disabled) {
     els.btnSimulate.disabled = disabled;
-    els.btnReset.disabled = disabled;
+    // btnReset stays enabled on purpose — Reset must be able to interrupt
+    // a running Simulate, not wait behind it.
     els.btnShowExample.disabled = disabled;
   }
 
   async function simulate() {
+    const myToken = ++runToken;
     const n = Math.max(1, Math.floor(Number(els.genCount.value)) || 10);
     els.genCount.value = n;
     setControlsDisabled(true);
@@ -469,6 +477,7 @@
     // still runs every generation.
     const renderEvery = Math.max(1, Math.ceil(n / 300));
     for (let i = 0; i < n; i++) {
+      if (myToken !== runToken) return; // Reset was clicked mid-run — stop touching state
       ga.evolve(state, p);
       if (i % renderEvery === 0 || i === n - 1) {
         renderChampion();
@@ -477,7 +486,7 @@
         await sleep(delay);
       }
     }
-    setControlsDisabled(false);
+    if (myToken === runToken) setControlsDisabled(false);
   }
 
   // ---- crossover & mutation explainer ----
@@ -497,6 +506,7 @@
   }
 
   async function showExample() {
+    const myToken = runToken;
     const p = params();
     const poolSize = Math.max(2, Math.round(state.population.length * p.topNPercent / 100));
     const pool = p.poolMethod === "softmax"
@@ -525,6 +535,7 @@
     els.exStatus.innerHTML = `<b>Crossover</b> — ${crossoverDescription(resolvedMethod, source, p.crossoverMethod === "both")}.`;
 
     await sleep(1300);
+    if (myToken !== runToken) return; // Reset was clicked mid-animation — don't paint over the fresh state
 
     const { grid: mutatedGrid, rows } = ga.mutate(crossedGrid, p.mutationRate);
     renderSudoku(els.exChild, mutatedGrid, { ...childOpts, mutRows: new Set(rows) });
