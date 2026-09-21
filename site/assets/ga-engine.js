@@ -60,27 +60,37 @@
     for (let j = 1; j < 9; j += 2) for (let i = 0; i < 9; i++) child[i][j] = b[i][j];
     return child;
   }
+  function crossoverBoth(a, b) {
+    // checkerboard: cell (r,c) comes from A on "light" squares, B on "dark" squares
+    const child = a.map((row) => row.slice());
+    for (let r = 0; r < 9; r++) for (let c = 0; c < 9; c++) if ((r + c) % 2 !== 0) child[r][c] = b[r][c];
+    return child;
+  }
   function crossover(a, b, method) {
-    return method === "cols" ? crossoverCols(a, b) : crossoverRows(a, b);
+    if (method === "cols") return crossoverCols(a, b);
+    if (method === "both") return crossoverBoth(a, b);
+    return crossoverRows(a, b);
   }
 
+  // Each of the 9 cells in a row is rolled independently, so a single row
+  // can pick up more than one swap in a generation (locked clues always skip).
   function mutate(grid, rate) {
     const g = grid.map((r) => r.slice());
-    const rows = [];
+    const rows = new Set();
     for (let r = 0; r < 9; r++) {
-      if (Math.random() < rate) {
-        const free = [];
-        for (let c = 0; c < 9; c++) if (PUZZLE[r][c] === 0) free.push(c);
-        if (free.length >= 2) {
-          const a = free[Math.floor(Math.random() * free.length)];
-          let b = free[Math.floor(Math.random() * free.length)];
-          if (b === a) b = free[(free.indexOf(a) + 1) % free.length];
-          [g[r][a], g[r][b]] = [g[r][b], g[r][a]];
-          rows.push(r);
-        }
+      const free = [];
+      for (let c = 0; c < 9; c++) if (PUZZLE[r][c] === 0) free.push(c);
+      if (free.length < 2) continue;
+      for (let c = 0; c < 9; c++) {
+        if (PUZZLE[r][c] !== 0) continue;
+        if (Math.random() >= rate) continue;
+        let other = free[Math.floor(Math.random() * free.length)];
+        if (other === c) other = free[(free.indexOf(c) + 1) % free.length];
+        [g[r][c], g[r][other]] = [g[r][other], g[r][c]];
+        rows.add(r);
       }
     }
-    return { grid: g, rows };
+    return { grid: g, rows: Array.from(rows) };
   }
 
   function selectFitnessProportional(pool) {
@@ -93,8 +103,15 @@
     return pool[pool.length - 1];
   }
 
-  function selectParent(pool, method, epsilon) {
-    if (method === "epsilon" && Math.random() < epsilon) {
+  // selectionMethod: "epsilon" (epsilon=0 reduces to pure fitness-proportional)
+  // or "interleave" (deterministic round-robin through the pool, rank order).
+  function selectParent(pool, method, epsilon, cursor) {
+    if (method === "interleave") {
+      const ind = pool[cursor.i % pool.length];
+      cursor.i += 1;
+      return ind;
+    }
+    if (Math.random() < epsilon) {
       return pool[Math.floor(Math.random() * pool.length)];
     }
     return selectFitnessProportional(pool);
@@ -124,10 +141,11 @@
     const topCount = Math.max(2, Math.round((targetSize * params.topNPercent) / 100));
     const pool = state.population.slice(0, topCount);
 
+    const cursor = { i: 0 };
     const next = [makeIndividual(state.population[0].grid.map((r) => r.slice()))];
     while (next.length < targetSize) {
-      const pa = selectParent(pool, params.selectionMethod, params.epsilon);
-      const pb = selectParent(pool, params.selectionMethod, params.epsilon);
+      const pa = selectParent(pool, params.selectionMethod, params.epsilon, cursor);
+      const pb = selectParent(pool, params.selectionMethod, params.epsilon, cursor);
       const crossed = crossover(pa.grid, pb.grid, params.crossoverMethod);
       const { grid } = mutate(crossed, params.mutationRate);
       next.push(makeIndividual(grid));

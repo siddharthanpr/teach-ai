@@ -45,27 +45,30 @@
           <select id="crossoverMethod">
             <option value="rows" selected>Alternate rows</option>
             <option value="cols">Alternate columns</option>
+            <option value="both">Both (checkerboard)</option>
           </select>
+          <span class="hint" id="crossoverHint">Even rows from Parent A, odd rows from Parent B</span>
         </div>
 
         <div class="field">
           <label for="selectionMethod">Selection method</label>
           <select id="selectionMethod">
-            <option value="fitness" selected>Fitness-proportional</option>
-            <option value="epsilon">Epsilon-greedy</option>
+            <option value="epsilon" selected>Epsilon-greedy</option>
+            <option value="interleave">Interleave</option>
           </select>
+          <span class="hint" id="selectionHint">With probability ε pick a uniformly random parent from the pool; otherwise fitness-proportional</span>
         </div>
 
-        <div class="field" id="epsilonField" hidden>
+        <div class="field" id="epsilonField">
           <label for="epsilon">Epsilon <span class="val" id="epsilonVal">0.10</span></label>
           <input type="range" id="epsilon" min="0" max="1" step="0.05" value="0.1">
-          <span class="hint">With probability ε, pick a uniformly random parent; otherwise fitness-proportional</span>
+          <span class="hint">0 = pure fitness-proportional, 1 = fully random</span>
         </div>
 
         <div class="field">
           <label for="mutationRate">Mutation rate <span class="val" id="mutationRateVal">0.10</span></label>
           <input type="range" id="mutationRate" min="0" max="0.5" step="0.01" value="0.1">
-          <span class="hint">Chance each row swaps two free cells</span>
+          <span class="hint">Chance rolled independently for each of the 9 cells in a row</span>
         </div>
 
         <div class="field">
@@ -169,7 +172,9 @@
     topNPercent: document.getElementById("topNPercent"),
     topNPercentVal: document.getElementById("topNPercentVal"),
     crossoverMethod: document.getElementById("crossoverMethod"),
+    crossoverHint: document.getElementById("crossoverHint"),
     selectionMethod: document.getElementById("selectionMethod"),
+    selectionHint: document.getElementById("selectionHint"),
     epsilonField: document.getElementById("epsilonField"),
     epsilon: document.getElementById("epsilon"),
     epsilonVal: document.getElementById("epsilonVal"),
@@ -229,6 +234,10 @@
         if (opts.colClassFn) {
           const cc = opts.colClassFn(c);
           if (cc) classes.push(cc);
+        }
+        if (opts.cellClassFn) {
+          const ec = opts.cellClassFn(r, c);
+          if (ec) classes.push(ec);
         }
         const mutated = opts.mutRows && opts.mutRows.has(r);
         if (mutated && !isFixed) classes.push("mut-flash");
@@ -401,26 +410,35 @@
   }
 
   // ---- crossover & mutation explainer ----
+  function crossoverChildOpts(method) {
+    if (method === "cols") return { colClassFn: (c) => (c % 2 === 0 ? "colA" : "colB") };
+    if (method === "both") return { cellClassFn: (r, c) => ((r + c) % 2 === 0 ? "rowA" : "rowB") };
+    return { rowClassFn: (r) => (r % 2 === 0 ? "rowA" : "rowB") };
+  }
+  function crossoverDescription(method) {
+    if (method === "cols") return "even columns inherited from Parent A, odd columns from Parent B";
+    if (method === "both") return "cells alternate in a checkerboard — Parent A on light squares, Parent B on dark";
+    return "even rows inherited from Parent A, odd rows from Parent B";
+  }
+
   async function showExample() {
     const p = params();
     const poolSize = Math.max(2, Math.round(state.population.length * p.topNPercent / 100));
     const pool = state.population.slice(0, poolSize);
-    const pa = pool[Math.floor(Math.random() * pool.length)];
-    let pb = pool[Math.floor(Math.random() * pool.length)];
+    const cursor = { i: Math.floor(Math.random() * pool.length) };
+    const pa = ga.selectParent(pool, p.selectionMethod, p.epsilon, cursor);
+    let pb = ga.selectParent(pool, p.selectionMethod, p.epsilon, cursor);
     if (pb === pa && pool.length > 1) pb = pool[(pool.indexOf(pa) + 1) % pool.length];
 
     renderSudoku(els.exParentA, pa.grid, { rowClassFn: () => "rowA" });
     renderSudoku(els.exParentB, pb.grid, { rowClassFn: () => "rowB" });
 
     const method = p.crossoverMethod;
-    const childOpts = method === "cols"
-      ? { colClassFn: (c) => (c % 2 === 0 ? "colA" : "colB") }
-      : { rowClassFn: (r) => (r % 2 === 0 ? "rowA" : "rowB") };
+    const childOpts = crossoverChildOpts(method);
 
     const crossedGrid = ga.crossover(pa.grid, pb.grid, method);
     renderSudoku(els.exChild, crossedGrid, childOpts);
-    const axisWord = method === "cols" ? "columns" : "rows";
-    els.exStatus.innerHTML = `<b>Crossover</b> (alternate ${axisWord}) — even ${axisWord} inherited from <span class="p1">Parent A</span>, odd ${axisWord} from <span class="p2">Parent B</span>.`;
+    els.exStatus.innerHTML = `<b>Crossover</b> — ${crossoverDescription(method)}.`;
 
     await sleep(1300);
 
@@ -433,6 +451,16 @@
   }
 
   // ---- wiring ----
+  const CROSSOVER_HINTS = {
+    rows: "Even rows from Parent A, odd rows from Parent B",
+    cols: "Even columns from Parent A, odd columns from Parent B",
+    both: "Cells alternate in a checkerboard between the two parents",
+  };
+  const SELECTION_HINTS = {
+    epsilon: "With probability ε pick a uniformly random parent from the pool; otherwise fitness-proportional",
+    interleave: "Cycles through the top-N% pool in rank order, giving every finalist an equal turn",
+  };
+
   els.topNPercent.addEventListener("input", () => {
     els.topNPercentVal.textContent = els.topNPercent.value + "%";
     renderStats();
@@ -443,8 +471,13 @@
   els.mutationRate.addEventListener("input", () => {
     els.mutationRateVal.textContent = Number(els.mutationRate.value).toFixed(2);
   });
+  els.crossoverMethod.addEventListener("change", () => {
+    els.crossoverHint.textContent = CROSSOVER_HINTS[els.crossoverMethod.value];
+  });
   els.selectionMethod.addEventListener("change", () => {
-    els.epsilonField.hidden = els.selectionMethod.value !== "epsilon";
+    const isEpsilon = els.selectionMethod.value === "epsilon";
+    els.epsilonField.hidden = !isEpsilon;
+    els.selectionHint.textContent = SELECTION_HINTS[els.selectionMethod.value];
   });
   els.btnSimulate.addEventListener("click", simulate);
   els.btnReset.addEventListener("click", resetPopulation);
