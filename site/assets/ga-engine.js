@@ -98,19 +98,37 @@
     return pool[pool.length - 1];
   }
 
-  // selectionMethod: "epsilon" — with probability epsilon, explore by
-  // picking uniformly from the WHOLE population (not just the elite pool);
-  // otherwise exploit via fitness-proportional sampling within the top-N%
-  // pool. epsilon=0 reduces to pure fitness-proportional over the pool.
-  // "interleave": deterministic round-robin through the pool, rank order.
-  function selectParent(fullPopulation, pool, method, epsilon, cursor) {
+  // Builds the breeding pool with its OWN epsilon-greedy: for each of the
+  // topCount slots, with probability topEpsilon fill it with a uniformly
+  // random individual from the WHOLE population instead of the next-best
+  // rank. topEpsilon=0 reduces to a strict top-N% cutoff. `population`
+  // must already be sorted descending by fitness.
+  function buildPool(population, topCount, topEpsilon) {
+    const pool = [];
+    for (let slot = 0; slot < topCount; slot++) {
+      if (Math.random() < topEpsilon) {
+        pool.push(population[Math.floor(Math.random() * population.length)]);
+      } else {
+        pool.push(population[slot]);
+      }
+    }
+    return pool;
+  }
+
+  // Picks a parent FROM an already-built pool. This has ITS OWN, separate
+  // epsilon from the pool-building one above.
+  // "epsilon" — with probability selectionEpsilon, pick uniformly at
+  // random from the pool; otherwise fitness-proportional within the pool.
+  // "interleave" — deterministic round-robin through the pool, in the
+  // order it was built.
+  function selectParent(pool, method, selectionEpsilon, cursor) {
     if (method === "interleave") {
       const ind = pool[cursor.i % pool.length];
       cursor.i += 1;
       return ind;
     }
-    if (Math.random() < epsilon) {
-      return fullPopulation[Math.floor(Math.random() * fullPopulation.length)];
+    if (Math.random() < selectionEpsilon) {
+      return pool[Math.floor(Math.random() * pool.length)];
     }
     return selectFitnessProportional(pool);
   }
@@ -137,13 +155,13 @@
   function evolve(state, params) {
     const targetSize = state.population.length;
     const topCount = Math.max(2, Math.round((targetSize * params.topNPercent) / 100));
-    const pool = state.population.slice(0, topCount);
+    const pool = buildPool(state.population, topCount, params.topEpsilon);
 
     const cursor = { i: 0 };
     const next = [makeIndividual(state.population[0].grid.map((r) => r.slice()))];
     while (next.length < targetSize) {
-      const pa = selectParent(state.population, pool, params.selectionMethod, params.epsilon, cursor);
-      const pb = selectParent(state.population, pool, params.selectionMethod, params.epsilon, cursor);
+      const pa = selectParent(pool, params.selectionMethod, params.selectionEpsilon, cursor);
+      const pb = selectParent(pool, params.selectionMethod, params.selectionEpsilon, cursor);
       const crossed = crossover(pa.grid, pb.grid, resolveCrossoverMethod(params.crossoverMethod));
       const { grid } = mutate(crossed, params.mutationRate);
       next.push(makeIndividual(grid));
@@ -165,6 +183,7 @@
     crossover,
     resolveCrossoverMethod,
     mutate,
+    buildPool,
     selectParent,
     makeIndividual,
     initPopulation,

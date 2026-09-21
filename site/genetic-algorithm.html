@@ -35,9 +35,15 @@
         </div>
 
         <div class="field">
-          <label for="topNPercent">Top N% <span class="val" id="topNPercentVal">20%</span></label>
+          <label for="topNPercent">Top N% pool <span class="val" id="topNPercentVal">20%</span></label>
           <input type="range" id="topNPercent" min="5" max="50" step="5" value="20">
-          <span class="hint">Parents are drawn only from the fittest N% each generation</span>
+          <span class="hint">Size of the breeding pool, as a share of the population</span>
+        </div>
+
+        <div class="field">
+          <label for="topEpsilon">Top N% epsilon <span class="val" id="topEpsilonVal">0.10</span></label>
+          <input type="range" id="topEpsilon" min="0" max="1" step="0.05" value="0.1">
+          <span class="hint">Per pool slot: probability ε it's ANY random individual instead of the next-best rank. 0 = strict cutoff</span>
         </div>
 
         <div class="field">
@@ -56,13 +62,13 @@
             <option value="epsilon" selected>Epsilon-greedy</option>
             <option value="interleave">Interleave</option>
           </select>
-          <span class="hint" id="selectionHint">With probability ε pick a uniformly random parent from the whole population; otherwise fitness-proportional within the top N%</span>
+          <span class="hint" id="selectionHint">With probability ε pick any parent from the pool; otherwise fitness-proportional within the pool</span>
         </div>
 
-        <div class="field" id="epsilonField">
-          <label for="epsilon">Epsilon <span class="val" id="epsilonVal">0.10</span></label>
-          <input type="range" id="epsilon" min="0" max="1" step="0.05" value="0.1">
-          <span class="hint">0 = pure fitness-proportional, 1 = fully random</span>
+        <div class="field" id="selectionEpsilonField">
+          <label for="selectionEpsilon">Selection epsilon <span class="val" id="selectionEpsilonVal">0.10</span></label>
+          <input type="range" id="selectionEpsilon" min="0" max="1" step="0.05" value="0.1">
+          <span class="hint">A different ε from Top N%'s — this one governs picking a parent from the already-built pool</span>
         </div>
 
         <div class="field">
@@ -175,9 +181,11 @@
     crossoverHint: document.getElementById("crossoverHint"),
     selectionMethod: document.getElementById("selectionMethod"),
     selectionHint: document.getElementById("selectionHint"),
-    epsilonField: document.getElementById("epsilonField"),
-    epsilon: document.getElementById("epsilon"),
-    epsilonVal: document.getElementById("epsilonVal"),
+    topEpsilon: document.getElementById("topEpsilon"),
+    topEpsilonVal: document.getElementById("topEpsilonVal"),
+    selectionEpsilonField: document.getElementById("selectionEpsilonField"),
+    selectionEpsilon: document.getElementById("selectionEpsilon"),
+    selectionEpsilonVal: document.getElementById("selectionEpsilonVal"),
     mutationRate: document.getElementById("mutationRate"),
     mutationRateVal: document.getElementById("mutationRateVal"),
     genCount: document.getElementById("genCount"),
@@ -209,7 +217,8 @@
       topNPercent: Number(els.topNPercent.value),
       crossoverMethod: els.crossoverMethod.value,
       selectionMethod: els.selectionMethod.value,
-      epsilon: Number(els.epsilon.value),
+      topEpsilon: Number(els.topEpsilon.value),
+      selectionEpsilon: Number(els.selectionEpsilon.value),
       mutationRate: Number(els.mutationRate.value),
     };
   }
@@ -419,10 +428,10 @@
   async function showExample() {
     const p = params();
     const poolSize = Math.max(2, Math.round(state.population.length * p.topNPercent / 100));
-    const pool = state.population.slice(0, poolSize);
+    const pool = ga.buildPool(state.population, poolSize, p.topEpsilon);
     const cursor = { i: Math.floor(Math.random() * pool.length) };
-    const pa = ga.selectParent(state.population, pool, p.selectionMethod, p.epsilon, cursor);
-    let pb = ga.selectParent(state.population, pool, p.selectionMethod, p.epsilon, cursor);
+    const pa = ga.selectParent(pool, p.selectionMethod, p.selectionEpsilon, cursor);
+    let pb = ga.selectParent(pool, p.selectionMethod, p.selectionEpsilon, cursor);
     if (pb === pa && pool.length > 1) pb = pool[(pool.indexOf(pa) + 1) % pool.length];
 
     renderSudoku(els.exParentA, pa.grid, { rowClassFn: () => "rowA" });
@@ -452,16 +461,19 @@
     both: "Each child randomly gets alternate-rows or alternate-columns crossover",
   };
   const SELECTION_HINTS = {
-    epsilon: "With probability ε pick a uniformly random parent from the whole population; otherwise fitness-proportional within the top N%",
-    interleave: "Cycles through the top-N% pool in rank order, giving every finalist an equal turn",
+    epsilon: "With probability ε pick any parent from the pool; otherwise fitness-proportional within the pool",
+    interleave: "Cycles through the pool in rank order, giving every finalist an equal turn",
   };
 
   els.topNPercent.addEventListener("input", () => {
     els.topNPercentVal.textContent = els.topNPercent.value + "%";
     renderStats();
   });
-  els.epsilon.addEventListener("input", () => {
-    els.epsilonVal.textContent = Number(els.epsilon.value).toFixed(2);
+  els.topEpsilon.addEventListener("input", () => {
+    els.topEpsilonVal.textContent = Number(els.topEpsilon.value).toFixed(2);
+  });
+  els.selectionEpsilon.addEventListener("input", () => {
+    els.selectionEpsilonVal.textContent = Number(els.selectionEpsilon.value).toFixed(2);
   });
   els.mutationRate.addEventListener("input", () => {
     els.mutationRateVal.textContent = Number(els.mutationRate.value).toFixed(2);
@@ -471,14 +483,14 @@
   });
   els.selectionMethod.addEventListener("change", () => {
     const isEpsilon = els.selectionMethod.value === "epsilon";
-    els.epsilonField.hidden = !isEpsilon;
+    els.selectionEpsilonField.hidden = !isEpsilon;
     els.selectionHint.textContent = SELECTION_HINTS[els.selectionMethod.value];
   });
   els.btnSimulate.addEventListener("click", simulate);
   els.btnReset.addEventListener("click", resetPopulation);
   els.btnShowExample.addEventListener("click", showExample);
 
-  els.epsilonField.hidden = els.selectionMethod.value !== "epsilon";
+  els.selectionEpsilonField.hidden = els.selectionMethod.value !== "epsilon";
   resetPopulation();
   attachHover();
 
