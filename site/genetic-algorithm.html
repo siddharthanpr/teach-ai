@@ -91,7 +91,7 @@
           <div class="stat"><div class="k">Generation</div><div class="v tabular" id="statGeneration">0</div></div>
           <div class="stat" id="statBestBox"><div class="k">Best fitness</div><div class="v tabular" id="statBest">–</div></div>
           <div class="stat"><div class="k">Avg fitness</div><div class="v tabular" id="statAvg">–</div></div>
-          <div class="stat"><div class="k">Top N% fitness</div><div class="v tabular" id="statTopN">–</div></div>
+          <div class="stat"><div class="k">Top N% fitness</div><div class="v tabular tight" id="statTopN">–</div></div>
         </div>
       </div>
 
@@ -118,6 +118,7 @@
             <div class="chart-legend">
               <span class="item avg"><span class="line"></span>Population average</span>
               <span class="item topn"><span class="line"></span>Top N% average</span>
+              <span class="item band"><span class="line"></span>Top N% ±1σ (pool spread)</span>
               <span class="item best"><span class="line"></span>Best individual</span>
             </div>
             <div id="chartWrap" style="position:relative;">
@@ -264,7 +265,7 @@
     state.population = ga.initPopulation(size);
     state.generation = 0;
     const s = ga.statsFor(state.population, params().topNPercent);
-    state.history = [{ gen: 0, avg: s.avg, topN: s.topN, best: s.best }];
+    state.history = [{ gen: 0, avg: s.avg, topN: s.topN, topNStd: s.topNStd, best: s.best }];
     renderAll();
   }
 
@@ -286,7 +287,7 @@
     els.statGeneration.textContent = state.generation;
     els.statBest.textContent = `${s.best} / ${ga.MAX_FITNESS}`;
     els.statAvg.textContent = s.avg.toFixed(1);
-    els.statTopN.textContent = s.topN.toFixed(1);
+    els.statTopN.textContent = `${s.topN.toFixed(1)} ± ${s.topNStd.toFixed(1)}`;
     els.statBestBox.classList.toggle("solved", s.best === ga.MAX_FITNESS);
   }
 
@@ -301,7 +302,8 @@
     const innerW = CHART_W - PAD.l - PAD.r;
     const innerH = CHART_H - PAD.t - PAD.b;
     const x = (gen) => PAD.l + (maxGen === 0 ? 0 : (gen / maxGen) * innerW);
-    const y = (val) => PAD.t + innerH - (val / ga.MAX_FITNESS) * innerH;
+    const clamp = (v) => Math.max(0, Math.min(ga.MAX_FITNESS, v));
+    const y = (val) => PAD.t + innerH - (clamp(val) / ga.MAX_FITNESS) * innerH;
     chartScale = { x, y, history, maxGen, innerW, innerH };
 
     const gridVals = [0, 50, 100, 150, 200, 243];
@@ -324,16 +326,26 @@
       return history.map((h, i) => `${i === 0 ? "M" : "L"}${x(h.gen).toFixed(1)},${y(h[key]).toFixed(1)}`).join(" ");
     }
 
+    // ±1σ band around the top-N% line — shows how noisy the epsilon-greedy
+    // pool is (tight band = near-strict cutoff, wide band = lots of random
+    // individuals mixed in).
+    function bandPath() {
+      const upper = history.map((h) => `${x(h.gen).toFixed(1)},${y(h.topN + h.topNStd).toFixed(1)}`);
+      const lower = history.slice().reverse().map((h) => `${x(h.gen).toFixed(1)},${y(h.topN - h.topNStd).toFixed(1)}`);
+      return `M${upper.join(" L")} L${lower.join(" L")} Z`;
+    }
+
     const last = history[history.length - 1];
     const endLabels = `
       <text x="${x(last.gen) + 6}" y="${y(last.avg) + 3}" class="end-label" fill="var(--series-avg)">avg</text>
-      <text x="${x(last.gen) + 6}" y="${y(last.topN) + 3}" class="end-label" fill="var(--series-topn)">top N%</text>
+      <text x="${x(last.gen) + 6}" y="${y(last.topN) + 3}" class="end-label" fill="var(--series-topn)">top N% ±σ</text>
       <text x="${x(last.gen) + 6}" y="${y(last.best) + 3}" class="end-label" fill="var(--series-best)">best</text>
     `;
 
     els.chartSvg.setAttribute("viewBox", `0 0 ${CHART_W + 46} ${CHART_H}`);
     els.chartSvg.innerHTML = `
       ${gridSvg}
+      <path d="${bandPath()}" class="band-topn" />
       <path d="${pathFor("avg")}" class="line-avg" />
       <path d="${pathFor("topN")}" class="line-topn" />
       <path d="${pathFor("best")}" class="line-best" />
@@ -375,7 +387,7 @@
       tooltip.innerHTML = `
         <div><b>Generation ${point.gen}</b></div>
         <div class="row"><span class="dot" style="background:var(--series-best)"></span>best ${point.best.toFixed(0)}</div>
-        <div class="row"><span class="dot" style="background:var(--series-topn)"></span>top N% ${point.topN.toFixed(1)}</div>
+        <div class="row"><span class="dot" style="background:var(--series-topn)"></span>top N% ${point.topN.toFixed(1)} ± ${point.topNStd.toFixed(1)}</div>
         <div class="row"><span class="dot" style="background:var(--series-avg)"></span>avg ${point.avg.toFixed(1)}</div>
       `;
       tooltip.hidden = false;

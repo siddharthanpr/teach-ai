@@ -318,7 +318,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   padding: 10px 12px;
 }
 .stat .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint); }
-.stat .v { font-family: var(--font-mono); font-size: 18px; font-weight: 600; margin-top: 2px; }
+.stat .v { font-family: var(--font-mono); font-size: 18px; font-weight: 600; margin-top: 2px; white-space: nowrap; }
+.stat .v.tight { font-size: 14px; letter-spacing: -0.01em; }
 .stat.solved { background: var(--accent-soft); }
 .stat.solved .v { color: var(--accent); }
 
@@ -409,12 +410,14 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .chart-legend .avg .line { background: var(--series-avg); }
 .chart-legend .topn .line { background: repeating-linear-gradient(to right, var(--series-topn) 0 4px, transparent 4px 7px); }
 .chart-legend .best .line { background: var(--series-best); height: 3px; }
+.chart-legend .band .line { background: var(--series-topn); opacity: 0.28; height: 10px; border-radius: 3px; }
 
 .chart-svg { width: 100%; height: auto; display: block; overflow: visible; }
 .chart-svg .grid-line { stroke: var(--line); stroke-width: 1; }
 .chart-svg .max-line { stroke: var(--series-max); stroke-width: 1; stroke-dasharray: 3 4; }
 .chart-svg .axis-label { fill: var(--ink-faint); font-family: var(--font-mono); font-size: 9.5px; }
 .chart-svg .end-label { font-family: var(--font-body); font-size: 10.5px; font-weight: 700; }
+.chart-svg .band-topn { fill: var(--series-topn); opacity: 0.14; stroke: none; }
 .chart-svg .line-avg { fill: none; stroke: var(--series-avg); stroke-width: 2; stroke-linecap: round; }
 .chart-svg .line-topn { fill: none; stroke: var(--series-topn); stroke-width: 2; stroke-linecap: round; stroke-dasharray: 5 4; }
 .chart-svg .line-best { fill: none; stroke: var(--series-best); stroke-width: 2.5; stroke-linecap: round; }

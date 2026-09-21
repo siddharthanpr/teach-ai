@@ -148,8 +148,11 @@
     const n = pop.length;
     const topCount = Math.max(1, Math.round((n * topNPercent) / 100));
     const avg = pop.reduce((s, i) => s + i.fitness, 0) / n;
-    const topAvg = pop.slice(0, topCount).reduce((s, i) => s + i.fitness, 0) / topCount;
-    return { avg, topN: topAvg, best: pop[0].fitness };
+    const topSlice = pop.slice(0, topCount);
+    const topAvg = topSlice.reduce((s, i) => s + i.fitness, 0) / topCount;
+    const topVariance = topSlice.reduce((s, i) => s + (i.fitness - topAvg) ** 2, 0) / topCount;
+    const topStd = Math.sqrt(topVariance);
+    return { avg, topN: topAvg, topNStd: topStd, best: pop[0].fitness };
   }
 
   function evolve(state, params) {
@@ -170,7 +173,7 @@
     state.population = next;
     state.generation += 1;
     const s = statsFor(next, params.topNPercent);
-    state.history.push({ gen: state.generation, avg: s.avg, topN: s.topN, best: s.best });
+    state.history.push({ gen: state.generation, avg: s.avg, topN: s.topN, topNStd: s.topNStd, best: s.best });
     return s;
   }
 
