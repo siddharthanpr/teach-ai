@@ -61,7 +61,7 @@
         <div class="field">
           <label for="hiddenLayers">Hidden layers</label>
           <input type="text" id="hiddenLayers" value="6, 6">
-          <span class="hint">Comma-separated widths, e.g. "6, 6" = two hidden layers of 6 neurons. Each width clamped 1–8 so the diagram stays readable</span>
+          <span class="hint">Comma-separated widths, e.g. "6, 6" = two hidden layers of 6 neurons (clamped 1–8 each so the diagram stays readable). Applies immediately — rebuilds the network from scratch</span>
         </div>
 
         <div class="field">
@@ -214,6 +214,7 @@
     state.norm = nn.computeNormalization(points, domain);
     const sizes = [1, ...nn.parseHiddenLayers(p.hiddenLayers), 1];
     state.net = nn.createNetwork(sizes);
+    state.prevWeights = null; // fresh net: nothing to compare against yet, no flash on first render
     state.step = 0;
     state.lastBatchMSE = 0;
     state.bestMSE = Infinity;
@@ -255,7 +256,14 @@
     for (const layer of net.layers) edgeCount += layer.W.length * layer.W[0].length;
     const showEdgeLabels = edgeCount <= 40;
 
+    // Weights that moved since the last render get a brief yellow flash
+    // overlay — otherwise a color/thickness shift alone is too subtle to
+    // read as "this is updating" frame to frame.
+    const prev = state.prevWeights;
+    let flashCount = 0;
+
     let svg = "";
+    let flashSvg = "";
     for (let l = 0; l < net.layers.length; l++) {
       const { W } = net.layers[l];
       const fromX = colX(l), toX = colX(l + 1);
@@ -272,9 +280,15 @@
             const mx = (fromX + toX) / 2, my = (fromY + toY) / 2;
             svg += `<text x="${mx.toFixed(1)}" y="${my.toFixed(1)}" class="nn-edge-label">${w.toFixed(2)}</text>`;
           }
+          if (prev && Math.abs(w - prev[l][j][i]) > 1e-4) {
+            flashCount++;
+            flashSvg += `<line x1="${fromX.toFixed(1)}" y1="${fromY.toFixed(1)}" x2="${toX.toFixed(1)}" y2="${toY.toFixed(1)}" class="nn-edge-flash" />`;
+          }
         }
       }
     }
+    svg += flashSvg; // flashes drawn last so they sit on top of the base edges
+    state.prevWeights = net.layers.map((layer) => layer.W.map((row) => row.slice()));
 
     for (let l = 0; l < numLayers; l++) {
       const size = sizes[l];
@@ -294,7 +308,8 @@
 
     els.nnSvg.setAttribute("viewBox", `0 0 ${NN_W} ${NN_H}`);
     els.nnSvg.innerHTML = svg;
-    els.nnSampleLabel.textContent = `Forward pass for a real data point — x = ${sample.x.toFixed(2)}, noisy target y = ${sample.y.toFixed(2)}${showEdgeLabels ? "" : " (edge labels hidden above 40 edges — color/thickness still show sign & magnitude)"}`;
+    const flashNote = prev ? ` · <b>${flashCount} weight${flashCount === 1 ? "" : "s"} updated</b> since last redraw (flashing yellow)` : "";
+    els.nnSampleLabel.innerHTML = `Forward pass for a real data point — x = ${sample.x.toFixed(2)}, noisy target y = ${sample.y.toFixed(2)}${showEdgeLabels ? "" : " (edge labels hidden above 40 edges — color/thickness still show sign & magnitude)"}${flashNote}`;
   }
 
   // ---- fit chart ----
@@ -484,13 +499,23 @@
     els.objFormula.textContent = obj.formula;
   }
 
+  // Data/network shape fields rebuild everything the moment they change —
+  // there's no meaningful way to "keep training" through a different
+  // architecture or a different dataset, so unlike learning-rate/dropout/
+  // batch-size (live training knobs, read fresh each Train click) these
+  // apply immediately rather than silently waiting for a Reset click.
   els.objective.addEventListener("change", () => {
     const obj = nn.OBJECTIVES[els.objective.value];
     els.objParams.value = obj.defaultParams;
     updateObjectiveHint();
+    resetAll();
   });
+  els.objParams.addEventListener("change", resetAll);
   els.numPoints.addEventListener("input", () => { els.numPointsVal.textContent = els.numPoints.value; });
+  els.numPoints.addEventListener("change", resetAll);
   els.noiseStd.addEventListener("input", () => { els.noiseStdVal.textContent = Number(els.noiseStd.value).toFixed(2); });
+  els.noiseStd.addEventListener("change", resetAll);
+  els.hiddenLayers.addEventListener("change", resetAll);
   els.learningRate.addEventListener("input", () => { els.learningRateVal.textContent = Number(els.learningRate.value).toFixed(2); });
   els.dropoutRate.addEventListener("input", () => { els.dropoutRateVal.textContent = Number(els.dropoutRate.value).toFixed(2); });
   els.btnTrain.addEventListener("click", train);
