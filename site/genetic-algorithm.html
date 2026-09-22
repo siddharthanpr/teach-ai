@@ -47,18 +47,18 @@
         <div class="field">
           <label for="poolMethod">Pool method</label>
           <select id="poolMethod">
-            <option value="topn" selected>Top N%</option>
-            <option value="softmax">Softmax</option>
+            <option value="topn">Top N%</option>
+            <option value="softmax" selected>Softmax</option>
           </select>
-          <span class="hint" id="poolHint">Each pool slot: probability ε it's ANY random individual instead of the next-best rank. 0 = strict cutoff</span>
+          <span class="hint" id="poolHint">Pool slots drawn ∝ exp(fitness / T) over the whole population, with replacement</span>
         </div>
 
-        <div class="field" id="topEpsilonField">
+        <div class="field" id="topEpsilonField" hidden>
           <label for="topEpsilon">Pool epsilon <span class="val" id="topEpsilonVal">0.10</span></label>
           <input type="range" id="topEpsilon" min="0" max="1" step="0.05" value="0.1">
         </div>
 
-        <div class="field" id="topTemperatureField" hidden>
+        <div class="field" id="topTemperatureField">
           <label for="topTemperature">Pool temperature <span class="val" id="topTemperatureVal">10</span></label>
           <input type="range" id="topTemperature" min="1" max="50" step="1" value="10">
           <span class="hint">Pool slots drawn ∝ exp(fitness / T) over the whole population. Low T = near-strict top ranks, high T = near-uniform</span>
@@ -77,22 +77,22 @@
         <div class="field">
           <label for="selectionMethod">Selection method</label>
           <select id="selectionMethod">
-            <option value="epsilon" selected>Epsilon-greedy</option>
+            <option value="epsilon">Epsilon-greedy</option>
             <option value="interleave">Interleave</option>
-            <option value="softmax">Softmax</option>
+            <option value="softmax" selected>Softmax</option>
           </select>
-          <span class="hint" id="selectionHint">With probability ε pick any parent from the pool at random; otherwise (greedy) take the single fittest one</span>
+          <span class="hint" id="selectionHint">P(parent) ∝ exp(fitness / T), sampled within the pool</span>
         </div>
 
-        <div class="field" id="selectionEpsilonField">
+        <div class="field" id="selectionEpsilonField" hidden>
           <label for="selectionEpsilon">Selection epsilon <span class="val" id="selectionEpsilonVal">0.10</span></label>
           <input type="range" id="selectionEpsilon" min="0" max="1" step="0.05" value="0.1">
           <span class="hint">A different ε from the pool's — this one governs picking a parent from the already-built pool</span>
         </div>
 
-        <div class="field" id="selectionTemperatureField" hidden>
-          <label for="selectionTemperature">Selection temperature <span class="val" id="selectionTemperatureVal">10</span></label>
-          <input type="range" id="selectionTemperature" min="1" max="50" step="1" value="10">
+        <div class="field" id="selectionTemperatureField">
+          <label for="selectionTemperature">Selection temperature <span class="val" id="selectionTemperatureVal">11</span></label>
+          <input type="range" id="selectionTemperature" min="1" max="50" step="1" value="11">
           <span class="hint">A different T from the pool's — this one governs picking a parent from the already-built pool, ∝ exp(fitness / T)</span>
         </div>
 
@@ -103,20 +103,20 @@
         </div>
 
         <div class="field">
-          <label for="injectionPercent">Random injection <span class="val" id="injectionPercentVal">5%</span></label>
-          <input type="range" id="injectionPercent" min="0" max="100" step="5" value="5">
+          <label for="injectionPercent">Random injection <span class="val" id="injectionPercentVal">100%</span></label>
+          <input type="range" id="injectionPercent" min="0" max="100" step="5" value="100">
           <span class="hint">Share of that generation's population replaced with brand-new random individuals, instead of bred children</span>
         </div>
 
         <div class="field">
-          <label for="injectionInterval">Injection every <span class="val" id="injectionIntervalVal">1</span> gen</label>
-          <input type="number" id="injectionInterval" min="1" value="1">
+          <label for="injectionInterval">Injection every <span class="val" id="injectionIntervalVal">70</span> gen</label>
+          <input type="number" id="injectionInterval" min="1" value="70">
           <span class="hint">1 = every generation. Higher = injection only fires on generations that are multiples of this</span>
         </div>
 
         <div class="field">
           <label for="genCount">Generations per simulate</label>
-          <input type="number" id="genCount" min="1" value="10">
+          <input type="number" id="genCount" min="1" value="3000">
         </div>
 
         <div class="btn-row">
