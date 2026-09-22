@@ -83,7 +83,7 @@
         <div class="field" id="hiddenLayersField">
           <label for="hiddenLayers">Hidden layers</label>
           <input type="text" id="hiddenLayers" value="6, 6">
-          <span class="hint">Comma-separated widths, e.g. "6, 6" = two hidden layers of 6 neurons (clamped 1–8 each so the diagram stays readable). Applies immediately — rebuilds the network from scratch</span>
+          <span class="hint">Comma-separated widths, e.g. "6, 6" = two hidden layers of 6 neurons (up to 4 layers, 1–64 wide each — the network trains at this real size). Layers wider than 8 are sampled in the diagram, not shrunk. Applies immediately — rebuilds the network from scratch</span>
         </div>
 
         <div class="field">
@@ -111,6 +111,8 @@
           <button class="btn-primary" id="btnTrain">▶ Train</button>
           <button class="btn-secondary" id="btnReset">↻ Reset</button>
         </div>
+
+        <div class="hint" id="settingsStatus" style="text-align:center;min-height:14px;">Settings autosave as you go</div>
 
         <div class="stat-grid">
           <div class="stat"><div class="k">Step</div><div class="v tabular" id="statStep">0</div></div>
@@ -174,12 +176,14 @@
   </main>
 </div>
 
+<script src="assets/playground-base.js"></script>
 <script src="assets/nn-engine.js"></script>
 <script>
 (function () {
   "use strict";
   const nn = window.TeachAI.nn;
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const run = window.TeachAI.base.createRunToken();
+  const sleep = window.TeachAI.base.sleep;
 
   const els = {
     objective: document.getElementById("objective"),
@@ -198,6 +202,7 @@
     stepCount: document.getElementById("stepCount"),
     btnTrain: document.getElementById("btnTrain"),
     btnReset: document.getElementById("btnReset"),
+    settingsStatus: document.getElementById("settingsStatus"),
     statStep: document.getElementById("statStep"),
     statBatchMSE: document.getElementById("statBatchMSE"),
     statDatasetMSE: document.getElementById("statDatasetMSE"),
@@ -235,7 +240,6 @@
     bestMSE: Infinity,
     lossHistory: [], // { step, mse }
   };
-  let runToken = 0;
 
   function params() {
     return {
@@ -267,7 +271,7 @@
   }
 
   function resetAll() {
-    runToken++;
+    run.bump();
     const p = params();
     state.modelType = p.modelType;
     const { points, domain, params: objParams } = nn.generateData(p.objective, p.objParams, p.numPoints, p.noiseStd);
@@ -327,6 +331,26 @@
   const NN_W = 700, NN_H = 300;
   const NN_PAD_X = 55, NN_PAD_Y = 34;
 
+  // The diagram can only legibly draw so many nodes per layer. A layer
+  // wider than NN_VISUAL_CAP is sampled evenly (not just chopped off), and
+  // a dashed "+N more" placeholder node stands in for the rest. This is
+  // purely a drawing decision — the network trains at its real requested
+  // size regardless of what the diagram shows.
+  const NN_VISUAL_CAP = 8;
+
+  function buildLayerView(size) {
+    if (size <= NN_VISUAL_CAP) {
+      return { size, indices: Array.from({ length: size }, (_, i) => i), hiddenCount: 0, displayCount: size };
+    }
+    const visibleCount = NN_VISUAL_CAP - 1;
+    const seen = new Set();
+    for (let k = 0; k < visibleCount; k++) {
+      seen.add(Math.round((k * (size - 1)) / (visibleCount - 1)));
+    }
+    const indices = Array.from(seen).sort((a, b) => a - b);
+    return { size, indices, hiddenCount: size - indices.length, displayCount: indices.length + 1 };
+  }
+
   function renderNetwork() {
     const net = state.net;
     const sizes = net.sizes;
@@ -334,20 +358,23 @@
     const sample = state.data.points[Math.floor(Math.random() * state.data.points.length)];
     const cache = nn.forward(net, sample.x / state.norm.xScale, { training: false });
 
+    const views = sizes.map(buildLayerView);
+
     const colX = (l) => NN_PAD_X + (l * (NN_W - 2 * NN_PAD_X)) / (numLayers - 1);
-    const rowY = (size, idx) => {
-      if (size === 1) return NN_H / 2;
+    const rowY = (displayCount, pos) => {
+      if (displayCount === 1) return NN_H / 2;
       const usable = NN_H - 2 * NN_PAD_Y;
-      return NN_PAD_Y + (idx * usable) / (size - 1);
+      return NN_PAD_Y + (pos * usable) / (displayCount - 1);
     };
 
     let maxAbsW = 0;
     for (const layer of net.layers) for (const row of layer.W) for (const w of row) maxAbsW = Math.max(maxAbsW, Math.abs(w));
     maxAbsW = maxAbsW || 1;
 
-    let edgeCount = 0;
-    for (const layer of net.layers) edgeCount += layer.W.length * layer.W[0].length;
-    const showEdgeLabels = edgeCount <= 40;
+    let visibleEdgeCount = 0;
+    for (let l = 0; l < net.layers.length; l++) visibleEdgeCount += views[l].indices.length * views[l + 1].indices.length;
+    const showEdgeLabels = visibleEdgeCount <= 40;
+    const wasSampled = views.some((v) => v.hiddenCount > 0);
 
     // Weights that moved since the last render get a brief yellow flash
     // overlay — otherwise a color/thickness shift alone is too subtle to
@@ -360,11 +387,13 @@
     for (let l = 0; l < net.layers.length; l++) {
       const { W } = net.layers[l];
       const fromX = colX(l), toX = colX(l + 1);
-      const fromSize = sizes[l], toSize = sizes[l + 1];
-      for (let j = 0; j < toSize; j++) {
-        for (let i = 0; i < fromSize; i++) {
+      const fromView = views[l], toView = views[l + 1];
+      for (let jp = 0; jp < toView.indices.length; jp++) {
+        const j = toView.indices[jp];
+        for (let ip = 0; ip < fromView.indices.length; ip++) {
+          const i = fromView.indices[ip];
           const w = W[j][i];
-          const fromY = rowY(fromSize, i), toY = rowY(toSize, j);
+          const fromY = rowY(fromView.displayCount, ip), toY = rowY(toView.displayCount, jp);
           const color = w >= 0 ? "var(--accent)" : "var(--parentB)";
           const strokeW = (0.6 + 2.6 * (Math.abs(w) / maxAbsW)).toFixed(2);
           const opacity = (0.25 + 0.55 * (Math.abs(w) / maxAbsW)).toFixed(2);
@@ -384,25 +413,31 @@
     state.prevWeights = net.layers.map((layer) => layer.W.map((row) => row.slice()));
 
     for (let l = 0; l < numLayers; l++) {
-      const size = sizes[l];
+      const view = views[l];
       const x = colX(l);
       const kind = l === 0 ? "input" : l === numLayers - 1 ? "output" : "hidden";
-      for (let i = 0; i < size; i++) {
-        const y = rowY(size, i);
+      for (let pos = 0; pos < view.indices.length; pos++) {
+        const i = view.indices[pos];
+        const y = rowY(view.displayCount, pos);
         let val;
         if (l === 0) val = sample.x;
         else if (l === numLayers - 1) val = cache.output * state.norm.yStd + state.norm.yMean;
         else val = cache.activations[l][i];
         svg += `<g class="nn-node ${kind}"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="16" /><text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="nn-node-value">${val.toFixed(2)}</text></g>`;
       }
-      const labelText = l === 0 ? "Input (x)" : l === numLayers - 1 ? "Output (ŷ)" : `Hidden ${l}`;
+      if (view.hiddenCount > 0) {
+        const y = rowY(view.displayCount, view.indices.length);
+        svg += `<g class="nn-node nn-node-more"><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="16" /><text x="${x.toFixed(1)}" y="${y.toFixed(1)}" class="nn-node-value">+${view.hiddenCount}</text></g>`;
+      }
+      const labelText = l === 0 ? "Input (x)" : l === numLayers - 1 ? "Output (ŷ)" : `Hidden ${l}${view.hiddenCount > 0 ? ` (${view.size})` : ""}`;
       svg += `<text x="${x.toFixed(1)}" y="${NN_H - 6}" class="nn-layer-label">${labelText}</text>`;
     }
 
     els.nnSvg.setAttribute("viewBox", `0 0 ${NN_W} ${NN_H}`);
     els.nnSvg.innerHTML = svg;
     const flashNote = prev ? ` · <b>${flashCount} weight${flashCount === 1 ? "" : "s"} updated</b> since last redraw (flashing yellow)` : "";
-    els.nnSampleLabel.innerHTML = `Forward pass for a real data point — x = ${sample.x.toFixed(2)}, noisy target y = ${sample.y.toFixed(2)}${showEdgeLabels ? "" : " (edge labels hidden above 40 edges — color/thickness still show sign & magnitude)"}${flashNote}`;
+    const sampleNote = wasSampled ? " · wide layers are sampled for the diagram (dashed node = the rest) — the network trains at its full requested size" : "";
+    els.nnSampleLabel.innerHTML = `Forward pass for a real data point — x = ${sample.x.toFixed(2)}, noisy target y = ${sample.y.toFixed(2)}${showEdgeLabels ? "" : " (edge labels hidden above 40 edges — color/thickness still show sign & magnitude)"}${sampleNote}${flashNote}`;
   }
 
   // ---- fit chart ----
@@ -564,14 +599,14 @@
   }
 
   async function train() {
-    const myToken = ++runToken;
+    const myToken = run.bump();
     const p = params();
     setControlsDisabled(true);
     const renderEvery = Math.max(1, Math.ceil(p.stepCount / 200));
     const delay = p.stepCount > 200 ? 0 : p.stepCount > 40 ? 10 : 40;
 
     for (let i = 0; i < p.stepCount; i++) {
-      if (myToken !== runToken) return;
+      if (!run.isCurrent(myToken)) return;
       const result = isNeural()
         ? nn.trainStep(state.net, state.data.points, state.norm, { lr: p.learningRate, dropoutRate: p.dropoutRate, batchSize: p.batchSize })
         : nn.paramTrainStep(state.paramModel, state.data.points, state.norm, { lr: p.learningRate, batchSize: p.batchSize });
@@ -583,7 +618,7 @@
         await sleep(delay);
       }
     }
-    if (myToken === runToken) setControlsDisabled(false);
+    if (run.isCurrent(myToken)) setControlsDisabled(false);
   }
 
   // ---- wiring ----
@@ -630,8 +665,33 @@
   els.btnTrain.addEventListener("click", train);
   els.btnReset.addEventListener("click", resetAll);
 
-  updateObjectiveHint();
-  updateModelFieldVisibility();
+  const autosave = window.TeachAI.base.createAutosave({
+    key: "teachai-nn-settings-v1",
+    els,
+    fields: [
+      "objective", "objParams", "numPoints", "noiseStd",
+      "modelType", "modelDegree", "hiddenLayers",
+      "learningRate", "dropoutRate", "batchSize", "stepCount",
+    ],
+    statusEl: els.settingsStatus,
+    defaultStatusText: "Settings autosave as you go",
+    onApply() {
+      updateObjectiveHint();
+      updateModelFieldVisibility();
+      els.numPointsVal.textContent = els.numPoints.value;
+      els.noiseStdVal.textContent = Number(els.noiseStd.value).toFixed(2);
+      els.modelDegreeVal.textContent = els.modelDegree.value;
+      els.learningRateVal.textContent = Number(els.learningRate.value).toFixed(2);
+      els.dropoutRateVal.textContent = Number(els.dropoutRate.value).toFixed(2);
+    },
+  });
+  const restoredSettings = autosave.load();
+  autosave.wire();
+  if (!restoredSettings) {
+    updateObjectiveHint();
+    updateModelFieldVisibility();
+  }
   resetAll();
+  if (restoredSettings) autosave.flashStatus("Restored your saved settings ✓");
 })();
 </script>

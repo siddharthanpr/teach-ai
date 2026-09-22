@@ -110,7 +110,7 @@
   function parseHiddenLayers(str) {
     const sizes = String(str)
       .split(",")
-      .map((s) => Math.max(1, Math.min(8, Math.round(Number(s.trim())))))
+      .map((s) => Math.max(1, Math.min(64, Math.round(Number(s.trim())))))
       .filter((n) => Number.isFinite(n) && n > 0)
       .slice(0, 4);
     return sizes.length ? sizes : [4];

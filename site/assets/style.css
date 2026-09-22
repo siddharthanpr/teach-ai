@@ -485,6 +485,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .nn-node.input circle { fill: var(--surface-2); }
 .nn-node.hidden circle { fill: var(--surface); }
 .nn-node.output circle { fill: var(--accent-soft); stroke: var(--accent); }
+.nn-node-more circle { fill: var(--surface); stroke: var(--ink-faint); stroke-dasharray: 3 2; }
+.nn-node-more .nn-node-value { fill: var(--ink-faint); font-size: 9px; }
 .nn-node-value {
   font-family: var(--font-mono); font-size: 10px; font-weight: 700; fill: var(--ink);
   text-anchor: middle; dominant-baseline: middle;

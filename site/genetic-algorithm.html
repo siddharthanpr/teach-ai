@@ -221,6 +221,7 @@
   </main>
 </div>
 
+<script src="assets/playground-base.js"></script>
 <script src="assets/ga-engine.js"></script>
 <script>
 (function () {
@@ -286,11 +287,11 @@
   };
 
   const state = { population: [], generation: 0, history: [] };
-  // Bumped by resetPopulation() to invalidate any in-flight simulate()/
+  // run.bump() from resetPopulation() invalidates any in-flight simulate()/
   // showExample() loop, so Reset can interrupt a running simulation
   // instead of racing it.
-  let runToken = 0;
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const run = window.TeachAI.base.createRunToken();
+  const sleep = window.TeachAI.base.sleep;
 
   function params() {
     return {
@@ -344,7 +345,7 @@
   }
 
   function resetPopulation() {
-    runToken++; // invalidate any in-flight simulate()/showExample() loop
+    run.bump(); // invalidate any in-flight simulate()/showExample() loop
     const size = Math.min(400, Math.max(10, Number(els.popSize.value) || 100));
     els.popSize.value = size;
     state.population = ga.initPopulation(size);
@@ -523,7 +524,7 @@
   }
 
   async function simulate() {
-    const myToken = ++runToken;
+    const myToken = run.bump();
     const n = Math.max(1, Math.floor(Number(els.genCount.value)) || 10);
     els.genCount.value = n;
     setControlsDisabled(true);
@@ -535,7 +536,7 @@
     // still runs every generation.
     const renderEvery = Math.max(1, Math.ceil(n / 300));
     for (let i = 0; i < n; i++) {
-      if (myToken !== runToken) return; // Reset was clicked mid-run — stop touching state
+      if (!run.isCurrent(myToken)) return; // Reset was clicked mid-run — stop touching state
       ga.evolve(state, p);
       const solved = state.population[0].fitness === ga.MAX_FITNESS;
       if (solved || i % renderEvery === 0 || i === n - 1) {
@@ -547,7 +548,7 @@
       }
       if (solved) break; // no point running further generations once solved
     }
-    if (myToken === runToken) setControlsDisabled(false);
+    if (run.isCurrent(myToken)) setControlsDisabled(false);
   }
 
   // ---- crossover & mutation explainer ----
@@ -567,7 +568,7 @@
   }
 
   async function showExample() {
-    const myToken = runToken;
+    const myToken = run.current();
     const p = params();
     const poolSize = Math.max(2, Math.round(state.population.length * p.topNPercent / 100));
     const pool = p.poolMethod === "softmax"
@@ -596,7 +597,7 @@
     els.exStatus.innerHTML = `<b>Crossover</b> — ${crossoverDescription(resolvedMethod, source, p.crossoverMethod === "both")}.`;
 
     await sleep(1300);
-    if (myToken !== runToken) return; // Reset was clicked mid-animation — don't paint over the fresh state
+    if (!run.isCurrent(myToken)) return; // Reset was clicked mid-animation — don't paint over the fresh state
 
     const { grid: mutatedGrid, rows } = ga.mutate(crossedGrid, p.mutationRate);
     renderSudoku(els.exChild, mutatedGrid, { ...childOpts, mutRows: new Set(rows) });
@@ -670,85 +671,41 @@
   els.btnReset.addEventListener("click", resetPopulation);
   els.btnShowExample.addEventListener("click", showExample);
 
-  // ---- save / restore settings (localStorage — per-viewer convenience) ----
-  const SETTINGS_KEY = "teachai-ga-settings-v1";
-  const SETTINGS_FIELDS = [
-    "popSize", "topNPercent", "poolMethod", "topEpsilon", "topTemperature",
-    "crossoverMethod", "selectionMethod", "selectionEpsilon", "selectionTemperature",
-    "mutationRate", "injectionPercent", "injectionInterval", "genCount",
-  ];
+  // ---- save / restore settings (shared module — localStorage, per-viewer) ----
+  const autosave = window.TeachAI.base.createAutosave({
+    key: "teachai-ga-settings-v1",
+    els,
+    fields: [
+      "popSize", "topNPercent", "poolMethod", "topEpsilon", "topTemperature",
+      "crossoverMethod", "selectionMethod", "selectionEpsilon", "selectionTemperature",
+      "mutationRate", "injectionPercent", "injectionInterval", "genCount",
+    ],
+    statusEl: els.settingsStatus,
+    defaultStatusText: "Settings autosave as you go",
+    onApply() {
+      els.topNPercentVal.textContent = els.topNPercent.value + "%";
+      els.topEpsilonVal.textContent = Number(els.topEpsilon.value).toFixed(2);
+      els.topTemperatureVal.textContent = els.topTemperature.value;
+      els.selectionEpsilonVal.textContent = Number(els.selectionEpsilon.value).toFixed(2);
+      els.selectionTemperatureVal.textContent = els.selectionTemperature.value;
+      els.mutationRateVal.textContent = Number(els.mutationRate.value).toFixed(2);
+      els.injectionPercentVal.textContent = els.injectionPercent.value + "%";
+      els.injectionIntervalVal.textContent = els.injectionInterval.value;
+      els.crossoverHint.textContent = CROSSOVER_HINTS[els.crossoverMethod.value];
+      onPoolMethodChange();
+      onSelectionMethodChange();
+    },
+  });
 
-  function collectSettings() {
-    const out = {};
-    for (const key of SETTINGS_FIELDS) out[key] = els[key].value;
-    return out;
-  }
-
-  function applySettings(saved) {
-    for (const key of SETTINGS_FIELDS) {
-      if (saved[key] !== undefined && els[key]) els[key].value = saved[key];
-    }
-    els.topNPercentVal.textContent = els.topNPercent.value + "%";
-    els.topEpsilonVal.textContent = Number(els.topEpsilon.value).toFixed(2);
-    els.topTemperatureVal.textContent = els.topTemperature.value;
-    els.selectionEpsilonVal.textContent = Number(els.selectionEpsilon.value).toFixed(2);
-    els.selectionTemperatureVal.textContent = els.selectionTemperature.value;
-    els.mutationRateVal.textContent = Number(els.mutationRate.value).toFixed(2);
-    els.injectionPercentVal.textContent = els.injectionPercent.value + "%";
-    els.injectionIntervalVal.textContent = els.injectionInterval.value;
-    els.crossoverHint.textContent = CROSSOVER_HINTS[els.crossoverMethod.value];
-    onPoolMethodChange();
-    onSelectionMethodChange();
-  }
-
-  const SETTINGS_DEFAULT_TEXT = "Settings autosave as you go";
-  let settingsStatusTimer = null;
-  function flashSettingsStatus(text) {
-    els.settingsStatus.textContent = text;
-    clearTimeout(settingsStatusTimer);
-    settingsStatusTimer = setTimeout(() => { els.settingsStatus.textContent = SETTINGS_DEFAULT_TEXT; }, 2000);
-  }
-
-  function saveSettingsNow() {
-    try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(collectSettings()));
-      flashSettingsStatus("Autosaved ✓");
-    } catch (e) {
-      flashSettingsStatus("Couldn't save (browser storage unavailable)");
-    }
-  }
-
-  function loadSettings() {
-    try {
-      const raw = localStorage.getItem(SETTINGS_KEY);
-      if (!raw) return false;
-      applySettings(JSON.parse(raw));
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // Autosave always: every hyperparameter field writes to localStorage on
-  // its own change, debounced so a dragged slider doesn't spam writes.
-  let autosaveTimer = null;
-  function autosave() {
-    clearTimeout(autosaveTimer);
-    autosaveTimer = setTimeout(saveSettingsNow, 400);
-  }
-  for (const key of SETTINGS_FIELDS) {
-    const el = els[key];
-    el.addEventListener(el.tagName === "SELECT" ? "change" : "input", autosave);
-  }
-
-  const restoredSettings = loadSettings();
+  const restoredSettings = autosave.load();
+  autosave.wire();
   if (!restoredSettings) {
     onPoolMethodChange();
     onSelectionMethodChange();
   }
   resetPopulation();
   attachHover();
-  if (restoredSettings) flashSettingsStatus("Restored your saved settings ✓");
+  if (restoredSettings) autosave.flashStatus("Restored your saved settings ✓");
 
   // Open in a working state rather than a blank one: run a short warm-up
   // and pull a live crossover example so the page shows what it does.
