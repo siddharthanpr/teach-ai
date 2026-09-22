@@ -16,20 +16,21 @@
 
   <main class="stack">
     <div>
-      <h1 style="font-size:26px;margin-bottom:6px;">Fitting a curve with a neural network</h1>
+      <h1 style="font-size:26px;margin-bottom:6px;">Fitting a curve to data</h1>
       <p style="color:var(--ink-dim);font-size:13.5px;max-width:70ch;margin:0;">
-        Pick a function, generate noisy samples from it, and watch a small fully-connected network learn to predict it.
-        The diagram below shows a real forward pass — those are actual weights on the edges and activations at the nodes.
+        Pick an objective function to generate noisy data, then pick a model to fit it with — a neural network, or a
+        parametric family (line, polynomial, sinusoid, …) learning its own coefficients by gradient descent. Choose a
+        model that doesn't match the objective to see how well one function family can approximate another.
       </p>
     </div>
 
     <div class="ga-layout">
       <!-- Sidebar -->
       <div class="card">
-        <div class="card-title">Data &amp; network</div>
+        <div class="card-title">Data &amp; model</div>
 
         <div class="field">
-          <label for="objective">Objective function</label>
+          <label for="objective">Objective function (generates the data)</label>
           <select id="objective">
             <option value="quadratic" selected>Quadratic</option>
             <option value="cubic">Cubic</option>
@@ -59,6 +60,27 @@
         </div>
 
         <div class="field">
+          <label for="modelType">Model (what you're fitting WITH)</label>
+          <select id="modelType">
+            <option value="neural" selected>Neural network</option>
+            <option value="linear">Straight line</option>
+            <option value="quadratic">Quadratic</option>
+            <option value="cubic">Cubic</option>
+            <option value="polynomial">Polynomial (custom degree)</option>
+            <option value="sinusoid">Sinusoid</option>
+            <option value="log">Logarithmic</option>
+            <option value="complex">Complex nonlinear</option>
+          </select>
+          <span class="hint" id="modelHint">A fully-connected network — doesn't assume any particular formula</span>
+        </div>
+
+        <div class="field" id="modelDegreeField" hidden>
+          <label for="modelDegree">Model polynomial degree <span class="val" id="modelDegreeVal">5</span></label>
+          <input type="range" id="modelDegree" min="1" max="9" step="1" value="5">
+          <span class="hint">Number of learned coefficients = degree + 1</span>
+        </div>
+
+        <div class="field" id="hiddenLayersField">
           <label for="hiddenLayers">Hidden layers</label>
           <input type="text" id="hiddenLayers" value="6, 6">
           <span class="hint">Comma-separated widths, e.g. "6, 6" = two hidden layers of 6 neurons (clamped 1–8 each so the diagram stays readable). Applies immediately — rebuilds the network from scratch</span>
@@ -69,10 +91,10 @@
           <input type="range" id="learningRate" min="0.01" max="0.3" step="0.01" value="0.05">
         </div>
 
-        <div class="field">
+        <div class="field" id="dropoutField">
           <label for="dropoutRate">Dropout rate <span class="val" id="dropoutRateVal">0.00</span></label>
           <input type="range" id="dropoutRate" min="0" max="0.6" step="0.05" value="0">
-          <span class="hint">Fraction of hidden units randomly zeroed each training step</span>
+          <span class="hint">Fraction of hidden units randomly zeroed each training step (neural network only)</span>
         </div>
 
         <div class="field">
@@ -100,7 +122,7 @@
 
       <!-- Main stage -->
       <div class="stack">
-        <div class="card nn-card">
+        <div class="card nn-card" id="nnCard">
           <div class="card-title">Network — live forward pass</div>
           <div class="nn-legend">
             <span class="item pos"><span class="line"></span>Positive weight</span>
@@ -111,6 +133,15 @@
           </div>
           <svg id="nnSvg" class="nn-svg" viewBox="0 0 700 300"></svg>
           <div class="grid-caption"><span id="nnSampleLabel">—</span></div>
+        </div>
+
+        <div class="card" id="modelCoeffCard" hidden>
+          <div class="card-title">Model — learned coefficients</div>
+          <p style="color:var(--ink-dim);font-size:12.5px;margin:0 0 14px;">
+            Each coefficient nudges toward its gradient every training step. Watch them settle — or, with a mismatched
+            model family, watch them converge to the best <em>compromise</em> rather than a perfect fit.
+          </p>
+          <div class="stat-grid" id="modelCoeffGrid" style="grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));"></div>
         </div>
 
         <div class="stage-row" style="grid-template-columns: 1fr 1fr;">
@@ -171,6 +202,16 @@
     statBatchMSE: document.getElementById("statBatchMSE"),
     statDatasetMSE: document.getElementById("statDatasetMSE"),
     statBestMSE: document.getElementById("statBestMSE"),
+    modelType: document.getElementById("modelType"),
+    modelHint: document.getElementById("modelHint"),
+    modelDegreeField: document.getElementById("modelDegreeField"),
+    modelDegree: document.getElementById("modelDegree"),
+    modelDegreeVal: document.getElementById("modelDegreeVal"),
+    hiddenLayersField: document.getElementById("hiddenLayersField"),
+    dropoutField: document.getElementById("dropoutField"),
+    nnCard: document.getElementById("nnCard"),
+    modelCoeffCard: document.getElementById("modelCoeffCard"),
+    modelCoeffGrid: document.getElementById("modelCoeffGrid"),
     nnSvg: document.getElementById("nnSvg"),
     nnSampleLabel: document.getElementById("nnSampleLabel"),
     fitChartWrap: document.getElementById("fitChartWrap"),
@@ -184,7 +225,11 @@
   const state = {
     data: { points: [], domain: [-4, 4], params: [] },
     norm: { xScale: 1, yMean: 0, yStd: 1 },
-    net: null,
+    modelType: "neural",
+    net: null, // used when modelType === "neural"
+    paramModel: null, // used otherwise: { modelKey, params }
+    prevWeights: null,
+    prevParams: null,
     step: 0,
     lastBatchMSE: 0,
     bestMSE: Infinity,
@@ -198,6 +243,8 @@
       objParams: els.objParams.value,
       numPoints: Math.max(10, Math.floor(Number(els.numPoints.value)) || 150),
       noiseStd: Math.max(0, Number(els.noiseStd.value)),
+      modelType: els.modelType.value,
+      modelDegree: Math.max(1, Math.min(9, Math.round(Number(els.modelDegree.value)) || 5)),
       hiddenLayers: els.hiddenLayers.value,
       learningRate: Number(els.learningRate.value),
       dropoutRate: Number(els.dropoutRate.value),
@@ -206,28 +253,74 @@
     };
   }
 
+  function isNeural() { return state.modelType === "neural"; }
+
+  // Both branches (NN vs parametric model) expose the same shape here so
+  // the rest of the page — charts, stats, hover — never needs to branch.
+  function currentPredict(x) {
+    return isNeural() ? nn.predict(state.net, x, state.norm) : nn.paramPredict(state.paramModel, x, state.norm);
+  }
+  function currentDatasetMSE() {
+    return isNeural()
+      ? nn.datasetMSE(state.net, state.data.points, state.norm)
+      : nn.paramDatasetMSE(state.paramModel, state.data.points, state.norm);
+  }
+
   function resetAll() {
     runToken++;
     const p = params();
+    state.modelType = p.modelType;
     const { points, domain, params: objParams } = nn.generateData(p.objective, p.objParams, p.numPoints, p.noiseStd);
     state.data = { points, domain, params: objParams };
     state.norm = nn.computeNormalization(points, domain);
-    const sizes = [1, ...nn.parseHiddenLayers(p.hiddenLayers), 1];
-    state.net = nn.createNetwork(sizes);
-    state.prevWeights = null; // fresh net: nothing to compare against yet, no flash on first render
+
+    if (isNeural()) {
+      const sizes = [1, ...nn.parseHiddenLayers(p.hiddenLayers), 1];
+      state.net = nn.createNetwork(sizes);
+      state.paramModel = null;
+      state.prevWeights = null; // fresh net: nothing to compare against yet, no flash on first render
+      state.prevParams = null;
+    } else {
+      state.paramModel = nn.createParamModel(p.modelType, p.modelDegree);
+      state.net = null;
+      state.prevWeights = null;
+      state.prevParams = null;
+    }
+
+    els.nnCard.hidden = !isNeural();
+    els.modelCoeffCard.hidden = isNeural();
+
     state.step = 0;
     state.lastBatchMSE = 0;
     state.bestMSE = Infinity;
-    state.lossHistory = [{ step: 0, mse: nn.datasetMSE(state.net, points, state.norm) }];
+    state.lossHistory = [{ step: 0, mse: currentDatasetMSE() }];
     renderAll();
     setControlsDisabled(false);
   }
 
   function renderAll() {
-    renderNetwork();
+    if (isNeural()) renderNetwork();
+    else renderModelCoeffs();
     renderFitChart();
     renderLossChart();
     renderStats();
+  }
+
+  // Shows each parametric coefficient as a live stat tile, flashing
+  // yellow when it moved since the last render — the parametric
+  // counterpart to the NN diagram's edge-flash.
+  function renderModelCoeffs() {
+    const model = state.paramModel;
+    const spec = nn.MODELS[model.modelKey];
+    const names = spec.paramNames || model.params.map((_, i) => `p${i}`);
+    const prev = state.prevParams;
+    els.modelCoeffGrid.innerHTML = model.params
+      .map((v, i) => {
+        const changed = prev && Math.abs(v - prev[i]) > 1e-4;
+        return `<div class="stat${changed ? " coeff-flash" : ""}"><div class="k">${names[i]}</div><div class="v tabular">${v.toFixed(4)}</div></div>`;
+      })
+      .join("");
+    state.prevParams = model.params.slice();
   }
 
   // ---- network diagram ----
@@ -357,7 +450,8 @@
     const predPts = [];
     for (let i = 0; i <= 120; i++) {
       const px = xMin + ((xMax - xMin) * i) / 120;
-      predPts.push({ x: px, y: nn.predict(state.net, px, state.norm) });
+      const py = currentPredict(px);
+      if (py !== null && Number.isFinite(py)) predPts.push({ x: px, y: py });
     }
     const predPath = predPts.map((p, i) => `${i === 0 ? "M" : "L"}${x(p.x).toFixed(1)},${y(Math.max(yMin, Math.min(yMax, p.y))).toFixed(1)}`).join(" ");
 
@@ -434,7 +528,8 @@
   attachChartHover(els.fitChartSvg, els.fitChartTooltip, els.fitChartWrap, () => fitScale, (px, scale) => {
     const xVal = scale.xMin + ((px - PAD.l) / (CHART_W - PAD.l - PAD.r)) * (scale.xMax - scale.xMin);
     if (xVal < scale.xMin || xVal > scale.xMax) return null;
-    const predY = nn.predict(state.net, xVal, state.norm);
+    const predY = currentPredict(xVal);
+    if (predY === null || !Number.isFinite(predY)) return null;
     const hx = scale.x(xVal), hy = scale.y(predY);
     return {
       hx, hy,
@@ -455,7 +550,7 @@
   });
 
   function renderStats() {
-    const datasetMSE = nn.datasetMSE(state.net, state.data.points, state.norm);
+    const datasetMSE = currentDatasetMSE();
     state.bestMSE = Math.min(state.bestMSE, datasetMSE);
     els.statStep.textContent = state.step;
     els.statBatchMSE.textContent = state.lastBatchMSE.toFixed(4);
@@ -477,11 +572,9 @@
 
     for (let i = 0; i < p.stepCount; i++) {
       if (myToken !== runToken) return;
-      const result = nn.trainStep(state.net, state.data.points, state.norm, {
-        lr: p.learningRate,
-        dropoutRate: p.dropoutRate,
-        batchSize: p.batchSize,
-      });
+      const result = isNeural()
+        ? nn.trainStep(state.net, state.data.points, state.norm, { lr: p.learningRate, dropoutRate: p.dropoutRate, batchSize: p.batchSize })
+        : nn.paramTrainStep(state.paramModel, state.data.points, state.norm, { lr: p.learningRate, batchSize: p.batchSize });
       state.step++;
       state.lastBatchMSE = result.mse;
       if (i % renderEvery === 0 || i === p.stepCount - 1) {
@@ -515,6 +608,22 @@
   els.numPoints.addEventListener("change", resetAll);
   els.noiseStd.addEventListener("input", () => { els.noiseStdVal.textContent = Number(els.noiseStd.value).toFixed(2); });
   els.noiseStd.addEventListener("change", resetAll);
+
+  function updateModelFieldVisibility() {
+    const type = els.modelType.value;
+    els.modelDegreeField.hidden = type !== "polynomial";
+    els.hiddenLayersField.hidden = type !== "neural";
+    els.dropoutField.hidden = type !== "neural";
+    els.modelHint.textContent = type === "neural"
+      ? "A fully-connected network — doesn't assume any particular formula"
+      : nn.MODELS[type].formula;
+  }
+  els.modelType.addEventListener("change", () => {
+    updateModelFieldVisibility();
+    resetAll();
+  });
+  els.modelDegree.addEventListener("input", () => { els.modelDegreeVal.textContent = els.modelDegree.value; });
+  els.modelDegree.addEventListener("change", resetAll);
   els.hiddenLayers.addEventListener("change", resetAll);
   els.learningRate.addEventListener("input", () => { els.learningRateVal.textContent = Number(els.learningRate.value).toFixed(2); });
   els.dropoutRate.addEventListener("input", () => { els.dropoutRateVal.textContent = Number(els.dropoutRate.value).toFixed(2); });
@@ -522,6 +631,7 @@
   els.btnReset.addEventListener("click", resetAll);
 
   updateObjectiveHint();
+  updateModelFieldVisibility();
   resetAll();
 })();
 </script>

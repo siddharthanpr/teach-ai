@@ -325,6 +325,14 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .stat .v.tight { font-size: 14px; letter-spacing: -0.01em; }
 .stat.solved { background: var(--accent-soft); }
 .stat.solved .v { color: var(--accent); }
+.stat.coeff-flash { animation: coeffFlash 0.7s ease-out; }
+@keyframes coeffFlash {
+  0% { background: var(--mutation); }
+  100% { background: var(--surface-2); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stat.coeff-flash { animation: none; background: var(--mutation-soft); }
+}
 
 .badge-solved {
   display: inline-flex; align-items: center; gap: 6px;

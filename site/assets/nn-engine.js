@@ -245,8 +245,143 @@
     return { mse: totalLoss / batchSize };
   }
 
+  // ---- parametric models (the "what am I fitting WITH" side) ----
+  // These are separate from OBJECTIVES (the "what generated the data"
+  // side) so you can e.g. fit a sinusoid MODEL to quadratic-generated
+  // data and see the mismatch. Each has a closed-form predict() and an
+  // ANALYTIC gradient per parameter (hand-derived calculus, not
+  // autodiff) — small parameter counts make this the natural choice.
+  const MODELS = {
+    linear: {
+      label: "Straight line",
+      formula: "m·x + b",
+      paramNames: ["m", "b"],
+      predict: (x, p) => p[0] * x + p[1],
+      grad: (x, p) => [x, 1],
+    },
+    quadratic: {
+      label: "Quadratic",
+      formula: "a·x² + b·x + c",
+      paramNames: ["a", "b", "c"],
+      predict: (x, p) => p[0] * x * x + p[1] * x + p[2],
+      grad: (x, p) => [x * x, x, 1],
+    },
+    cubic: {
+      label: "Cubic",
+      formula: "a·x³ + b·x² + c·x + d",
+      paramNames: ["a", "b", "c", "d"],
+      predict: (x, p) => p[0] * x ** 3 + p[1] * x * x + p[2] * x + p[3],
+      grad: (x, p) => [x ** 3, x * x, x, 1],
+    },
+    polynomial: {
+      label: "Polynomial (custom degree)",
+      formula: "p₀·xⁿ + p₁·xⁿ⁻¹ + … (degree set below, highest-degree first)",
+      paramNames: null, // dynamic — sized by the modelDegree control
+      predict: (x, p) => (p.length ? p.reduce((acc, c) => acc * x + c, 0) : 0),
+      grad: (x, p) => {
+        const n = p.length - 1;
+        const g = new Array(p.length);
+        for (let k = 0; k <= n; k++) g[k] = Math.pow(x, n - k);
+        return g;
+      },
+    },
+    sinusoid: {
+      label: "Sinusoid",
+      formula: "a·sin(b·x + c) + d",
+      paramNames: ["a", "b", "c", "d"],
+      predict: (x, p) => p[0] * Math.sin(p[1] * x + p[2]) + p[3],
+      grad: (x, p) => {
+        const inner = p[1] * x + p[2];
+        return [Math.sin(inner), p[0] * Math.cos(inner) * x, p[0] * Math.cos(inner), 1];
+      },
+    },
+    log: {
+      label: "Logarithmic",
+      formula: "a·ln(b·x + c) + d",
+      paramNames: ["a", "b", "c", "d"],
+      predict: (x, p) => {
+        const v = p[1] * x + p[2];
+        return v > 1e-6 ? p[0] * Math.log(v) + p[3] : null;
+      },
+      grad: (x, p) => {
+        const v = p[1] * x + p[2];
+        if (v <= 1e-6) return null;
+        return [Math.log(v), (p[0] * x) / v, p[0] / v, 1];
+      },
+    },
+    complex: {
+      label: "Complex nonlinear",
+      formula: "a·sin(b·x) + c·x·cos(d·x)",
+      paramNames: ["a", "b", "c", "d"],
+      predict: (x, p) => p[0] * Math.sin(p[1] * x) + p[2] * x * Math.cos(p[3] * x),
+      grad: (x, p) => [
+        Math.sin(p[1] * x),
+        p[0] * Math.cos(p[1] * x) * x,
+        x * Math.cos(p[3] * x),
+        -p[2] * x * x * Math.sin(p[3] * x),
+      ],
+    },
+  };
+
+  function createParamModel(modelKey, degree) {
+    const spec = MODELS[modelKey];
+    const count = spec.paramNames ? spec.paramNames.length : Math.max(1, Math.min(9, Math.round(degree))) + 1;
+    const params = new Array(count).fill(0).map(() => gaussianNoise() * 0.3);
+    return { modelKey, params };
+  }
+
+  function paramPredict(model, x, norm) {
+    const v = MODELS[model.modelKey].predict(x / norm.xScale, model.params);
+    return v === null || !Number.isFinite(v) ? null : v * norm.yStd + norm.yMean;
+  }
+
+  function paramDatasetMSE(model, points, norm) {
+    let sum = 0, count = 0;
+    for (const p of points) {
+      const pred = paramPredict(model, p.x, norm);
+      if (pred === null) continue;
+      const d = pred - p.y;
+      sum += d * d;
+      count++;
+    }
+    return count ? sum / count : NaN;
+  }
+
+  // One SGD step over a mini-batch, using each family's analytic
+  // gradient rather than backprop (there's no hidden layer to chain
+  // through — the whole model IS the formula).
+  function paramTrainStep(model, points, norm, opts) {
+    const spec = MODELS[model.modelKey];
+    const n = model.params.length;
+    const grads = new Array(n).fill(0);
+    const batchSize = Math.max(1, Math.min(opts.batchSize, points.length));
+    let totalLoss = 0, used = 0;
+    for (let s = 0; s < batchSize; s++) {
+      const sample = points[Math.floor(Math.random() * points.length)];
+      const xNorm = sample.x / norm.xScale;
+      const targetNorm = (sample.y - norm.yMean) / norm.yStd;
+      const pred = spec.predict(xNorm, model.params);
+      if (pred === null || !Number.isFinite(pred)) continue; // outside domain (log) — skip
+      const g = spec.grad(xNorm, model.params);
+      if (!g) continue;
+      const err = pred - targetNorm;
+      totalLoss += err * err;
+      used++;
+      for (let k = 0; k < n; k++) grads[k] += 2 * err * g[k];
+    }
+    const denom = used || 1;
+    for (let k = 0; k < n; k++) model.params[k] -= opts.lr * (grads[k] / denom);
+    return { mse: totalLoss / denom };
+  }
+
   window.TeachAI = window.TeachAI || {};
   window.TeachAI.nn = {
+    MODELS,
+    createParamModel,
+    paramPredict,
+    paramDatasetMSE,
+    paramTrainStep,
+    OBJECTIVES,
     OBJECTIVES,
     parseParams,
     parseHiddenLayers,
