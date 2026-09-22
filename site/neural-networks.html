@@ -24,9 +24,13 @@
       </p>
     </div>
 
-    <div class="ga-layout">
+    <div class="layout-toolbar">
+      <button class="layout-reset-btn" id="btnResetLayout" type="button">⤢ Reset tile layout</button>
+    </div>
+
+    <div class="ga-layout" id="tileLayer">
       <!-- Sidebar -->
-      <div class="card">
+      <div class="card tile" data-tile-id="sidebar">
         <div class="card-title">Data &amp; model</div>
 
         <div class="field">
@@ -124,7 +128,7 @@
 
       <!-- Main stage -->
       <div class="stack">
-        <div class="card nn-card" id="nnCard">
+        <div class="card nn-card tile" id="nnCard" data-tile-id="networkDiagram" data-tile-group="modelPanel">
           <div class="card-title">Network — live forward pass</div>
           <div class="nn-legend">
             <span class="item pos"><span class="line"></span>Positive weight</span>
@@ -137,7 +141,7 @@
           <div class="grid-caption"><span id="nnSampleLabel">—</span></div>
         </div>
 
-        <div class="card" id="modelCoeffCard" hidden>
+        <div class="card tile" id="modelCoeffCard" hidden data-tile-id="modelCoeffs" data-tile-group="modelPanel">
           <div class="card-title">Model — learned coefficients</div>
           <p style="color:var(--ink-dim);font-size:12.5px;margin:0 0 14px;">
             Each coefficient nudges toward its gradient every training step. Watch them settle — or, with a mismatched
@@ -147,7 +151,7 @@
         </div>
 
         <div class="stage-row" style="grid-template-columns: 1fr 1fr;">
-          <div class="card chart-card">
+          <div class="card chart-card tile" data-tile-id="fitChart">
             <div class="card-title">Fit vs. data</div>
             <div class="chart-legend">
               <span class="item"><span class="line" style="background:var(--ink-faint);opacity:.5;"></span>Data (noisy)</span>
@@ -160,7 +164,7 @@
             </div>
           </div>
 
-          <div class="card chart-card">
+          <div class="card chart-card tile" data-tile-id="lossChart">
             <div class="card-title">Loss over training steps</div>
             <div class="chart-legend">
               <span class="item"><span class="line" style="background:var(--parentB);"></span>Batch MSE</span>
@@ -225,6 +229,8 @@
     lossChartWrap: document.getElementById("lossChartWrap"),
     lossChartSvg: document.getElementById("lossChartSvg"),
     lossChartTooltip: document.getElementById("lossChartTooltip"),
+    tileLayer: document.getElementById("tileLayer"),
+    btnResetLayout: document.getElementById("btnResetLayout"),
   };
 
   const state = {
@@ -693,5 +699,12 @@
   }
   resetAll();
   if (restoredSettings) autosave.flashStatus("Restored your saved settings ✓");
+
+  // ---- free-form tile layout (drag by card title, resize by corner) ----
+  const tileLayout = window.TeachAI.base.createTileLayout({
+    key: "teachai-nn-layout-v1",
+    container: els.tileLayer,
+  });
+  els.btnResetLayout.addEventListener("click", () => tileLayout.reset());
 })();
 </script>

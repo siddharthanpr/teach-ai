@@ -23,9 +23,13 @@
       </p>
     </div>
 
-    <div class="ga-layout">
+    <div class="layout-toolbar">
+      <button class="layout-reset-btn" id="btnResetLayout" type="button">⤢ Reset tile layout</button>
+    </div>
+
+    <div class="ga-layout" id="tileLayer">
       <!-- Sidebar: hyperparameters -->
-      <div class="card">
+      <div class="card tile" data-tile-id="sidebar">
         <div class="card-title">Hyperparameters</div>
 
         <div class="field">
@@ -133,7 +137,7 @@
       <!-- Main stage -->
       <div class="stack">
         <div class="stage-row">
-          <div class="card">
+          <div class="card tile" data-tile-id="champion">
             <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
               <span>Champion</span>
               <span class="badge-solved" id="solvedBadge" hidden>✓ Solved</span>
@@ -148,7 +152,7 @@
             </div>
           </div>
 
-          <div class="card">
+          <div class="card tile" data-tile-id="randomCandidate">
             <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;">
               <span>Random candidate</span>
               <span class="badge-solved" id="sampleSolvedBadge" hidden>✓ Solved</span>
@@ -163,7 +167,7 @@
             </div>
           </div>
 
-          <div class="card chart-card">
+          <div class="card chart-card tile" data-tile-id="fitnessChart">
             <div class="card-title">Fitness over generations</div>
             <div class="chart-readout" id="chartReadout">
               <span><span class="k">Best</span> <span class="v tabular" id="readoutBest">–</span> <span class="k">(all-time)</span></span>
@@ -183,7 +187,7 @@
         </div>
 
         <!-- Explainer -->
-        <div class="card">
+        <div class="card tile" data-tile-id="explainer">
           <div class="card-title">Crossover &amp; mutation, explained</div>
           <div class="status-line" id="exStatus">Click “Show example” to pull two parents from the current top pool.</div>
 
@@ -284,6 +288,8 @@
     exChild: document.getElementById("exChild"),
     exStatus: document.getElementById("exStatus"),
     btnShowExample: document.getElementById("btnShowExample"),
+    tileLayer: document.getElementById("tileLayer"),
+    btnResetLayout: document.getElementById("btnResetLayout"),
   };
 
   const state = { population: [], generation: 0, history: [] };
@@ -706,6 +712,13 @@
   resetPopulation();
   attachHover();
   if (restoredSettings) autosave.flashStatus("Restored your saved settings ✓");
+
+  // ---- free-form tile layout (drag by card title, resize by corner) ----
+  const tileLayout = window.TeachAI.base.createTileLayout({
+    key: "teachai-ga-layout-v1",
+    container: els.tileLayer,
+  });
+  els.btnResetLayout.addEventListener("click", () => tileLayout.reset());
 
   // Open in a working state rather than a blank one: run a short warm-up
   // and pull a live crossover example so the page shows what it does.

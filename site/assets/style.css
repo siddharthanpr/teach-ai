@@ -225,6 +225,29 @@ main { padding-block: 32px 56px; }
 }
 
 .stack { display: flex; flex-direction: column; gap: 20px; }
+
+/* ---------- draggable / resizable tiles ---------- */
+/* position:absolute is applied by JS (playground-base.js), only after it
+   has measured each tile's normal-flow position — not here. A static rule
+   would apply the instant this class is in the markup, before any script
+   runs, and a Grid item with no explicit left/top collapses to the grid's
+   top-left start corner instead of its natural auto-placed slot. */
+.tile { box-sizing: border-box; overflow: auto; }
+.tile.dragging, .tile.resizing { box-shadow: 0 14px 32px rgba(20, 20, 16, 0.18); }
+.tile > .tile-drag-handle { cursor: grab; -webkit-user-select: none; user-select: none; touch-action: none; }
+.tile.dragging > .tile-drag-handle { cursor: grabbing; }
+.tile-resize-handle {
+  position: absolute; right: 3px; bottom: 3px; width: 14px; height: 14px;
+  cursor: nwse-resize; touch-action: none; border-radius: 2px; opacity: 0.4;
+  background: linear-gradient(135deg, transparent 0 50%, var(--ink-faint) 50% 100%);
+}
+.tile-resize-handle:hover { opacity: 0.85; }
+.layout-toolbar { display: flex; justify-content: flex-end; margin-bottom: -6px; }
+.layout-reset-btn {
+  background: none; border: 1px solid var(--line); color: var(--ink-faint);
+  font-size: 11.5px; padding: 6px 12px;
+}
+.layout-reset-btn:hover:not(:disabled) { background: var(--surface-2); color: var(--ink); }
 .stage-row {
   display: grid;
   grid-template-columns: minmax(240px, 300px) minmax(240px, 300px) 1fr;
